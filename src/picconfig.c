@@ -1,21 +1,25 @@
 /*
  * File:   picconfig.c
- * Author: ch
+ * Author: wh
  *
- * Created on 14. März 2011, 17:57
+ * PIC32MX460F512L Configuration Bit Settings
+ * 
+ * Created on 06. Dez. 2012
  */
 
-// PIC32MX460F512L Configuration Bit Settings
-#include <p32xxxx.h>
 #include "common.h"
+// 
 
 #ifdef __DEBUG
   #pragma message("********************** Debung build ****************************")
   #pragma config DEBUG = ON
+#else
+  #pragma message("********************** Release build ****************************")
+  #pragma config DEBUG = OFF              // Background Debugger Enable (Debugger is disabled)
 #endif
 
 // DEVCFG3
-// USERID = No Setting
+// USERID = No Setting - see below
 
 // DEVCFG2
 #pragma config FPLLIDIV = DIV_2         // PLL Input Divider (2x Divider)
@@ -24,24 +28,18 @@
 #pragma config UPLLIDIV = DIV_12        // USB PLL Input Divider (12x Divider)
 #pragma config UPLLEN = OFF             // USB PLL Enable (Disabled and Bypassed)
 
-// #pragma config FPLLIDIV = DIV_2, FPLLMUL = MUL_20, FPLLODIV = DIV_1
-
 // DEVCFG1
 #pragma config FNOSC = PRIPLL           // Oscillator Selection Bits (Primary Osc w/PLL (XT+,HS+,EC+PLL))
-//#pragma config FSOSCEN = OFF            // Secondary Oscillator Enable (Disabled)
+// #pragma config FSOSCEN = OFF            // Secondary Oscillator Enable (Disabled)
 #pragma config IESO = OFF               // Internal/External Switch Over (Disabled)
-#pragma config POSCMOD = HS             // Primary Oscillator Configuration (HS)
-#pragma config OSCIOFNC = OFF           // CLKO Output Signal Inctive on the OSCO Pin (Disabled)
+#pragma config POSCMOD = HS             // Primary Oscillator Configuration (HS osc mode)
+#pragma config OSCIOFNC = OFF           // CLKO Output Signal Active on the OSCO Pin (Disabled)
 #pragma config FPBDIV = DIV_1           // Peripheral Clock Divisor (Pb_Clk is Sys_Clk/1)
 #pragma config FCKSM = CSDCMD           // Clock Switching and Monitor Selection (Clock Switch Disable, FSCM Disabled)
-#pragma config WDTPS = PS1048576        // Watchdog Timer Postscaler (1:1048576)
-#pragma config FWDTEN = ON              // Watchdog Timer Enable (WDT Enabled)
+// #pragma config WDTPS = PS1048576        // Watchdog Timer Postscaler (1:1048576)
+#pragma config WDTPS = PS1024             // Watchdog Timer Postscaler (1:16)
+#pragma config FWDTEN = OFF             // Watchdog Timer Enable (WDT Enabled)
 
-// ** #pragma config POSCMOD = HS
-// #pragma config FNOSC = PRIPLL
-// #pragma config OSCIOFNC = OFF
-// ** #pragma config FPBDIV = DIV_1, FCKSM = CSECME
-// #pragma config IESO = OFF               // Internal/External Switch Over (Disabled)
 #ifdef HAVE_RTCC
 #pragma config FSOSCEN = ON
 #else

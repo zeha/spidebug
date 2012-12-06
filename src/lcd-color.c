@@ -11,12 +11,24 @@
 #include "common.h"
 
 
+// #define PORTRAIT
+
+#ifdef PORTRAIT
+  #pragma message(">>>>>>> Portrait Mode")
+#else 
+  #pragma message(">>>>>>> Landscape Mode")
+#endif
+
+// Display size
+#define MAX_X 319       // Pixel
+#define MAX_Y 239       // Pixel
+
+
 #define LCD_RESET LATBbits.LATB14
 #define LCD_RESET_ON 0
 #define LCD_RESET_OFF 1
 
 #define LCD_CD    LATBbits.LATB15
-//#define LCD_CD    LATCbits.LATC1
 #define LCD_CD_C  0
 #define LCD_CD_D  1
 
@@ -40,29 +52,6 @@
 
 unsigned char pic[28800];
 
-//----------------------------------------------------------------------
-#if 0
-
-void STP_SC(void) {
-    // sbit  STP  =P2^0;    // for winstar test board
-    // sbit  S_S  =P2^1;    // for winstar test board
-    unsigned char x, y, z;
-    z = P2;
-    P2 = z || 0x03;
-    if (S_S == 1) {
-        do {
-            for (x = 0; x < 255; x++) {
-                for (y = 0; y < 255; y++) {
-                }
-            }
-            P2 = z || 0x03;
-
-        } while (STP == 0);
-
-    }
-}
-#endif
-
 //;******************************************************************************
 //;sed1330 funtion
 
@@ -71,20 +60,6 @@ void Write_Command(unsigned char command) {
     PMDIN = command; // CS low to WR low: 50ns (WAITB), WR low to WR high: 100ns (WAITM)
     while (mIsPMPBusy()); // 200ns done
     //   delay_50ns(); // WR high/PMBUSY to CE high (50ns)  -- 250ns done
-/*
-    LCD_RD = LCD_RD_OFF;
-    LCD_WR = LCD_WR_ON;
-    LCD_CS = LCD_CS_ON;
-    LATE = (LATE & 0xff00) | command;
-    //delay_50nS();     // 150nS
-    //delay_50nS();     // 150nS
-    //delay_50nS();     // 150nS
-    LCD_CS = LCD_CS_OFF;
-    LCD_WR = LCD_WR_OFF;
-    //delay_50nS();     // 150nS
-    //delay_50nS();     // 150nS
-    //delay_50nS();     // 150nS
- * */
 }
 
 //;******************************************************************************
@@ -93,21 +68,12 @@ void Write_Data(unsigned char data1) {
     LCD_CD = LCD_CD_D;
     PMDIN = data1; // CS low to WR low: 50ns (WAITB), WR low to WR high: 100ns (WAITM)
     while (mIsPMPBusy()); // 200ns done
-/*
-    LCD_RD = LCD_RD_OFF;
-    LCD_WR = LCD_WR_ON;
-    LCD_CS = LCD_CS_ON;
-    LATE = (LATE & 0xff00) | data1;
-    //delay_50nS();     // 50nS
-    //delay_50nS();     // 100nS
-    //delay_50nS();     // 150nS
-    LCD_CS = LCD_CS_OFF;
-    LCD_WR = LCD_WR_OFF;
-    //delay_50nS();     // 50nS
-    //delay_50nS();     // 100nS
-    //delay_50nS();     // 150nS
- */
 }
+//==============================================================
+
+#define Write_Data_Fast(data1) {LCD_CD = LCD_CD_D; PMDIN = data1;}
+// LCD_CS = 12.5 nS
+// CS low to WR low: 50ns (WAITB), WR low to WR high: 100ns (WAITM)
 //==============================================================
 
 void Command_Write(unsigned char command, unsigned char data1) {
@@ -117,9 +83,13 @@ void Command_Write(unsigned char command, unsigned char data1) {
 //==============================================================
 
 void SendData(unsigned long color) {
-    Write_Data((color) >> 16); // color is red
-    Write_Data((color) >> 8); // color is green
-    Write_Data(color); // color is blue
+    Write_Data_Fast((color) >> 16); // color is red
+    Write_Data_Fast((color) >> 8); // color is green
+    Write_Data_Fast(color); // color is blue
+
+ //   Write_Data((color) >> 16); // color is red
+ //   Write_Data((color) >> 8); // color is green
+ //   Write_Data(color); // color is blue
 
 }
 //======================================================
@@ -127,12 +97,8 @@ void SendData(unsigned long color) {
 //======================================================
 
 void Initial_SSD1963(void) {
-//    mPORTBSetPinsDigitalOut(BIT_14); // -RES
     mPORTBSetPinsDigitalOut(BIT_14 | BIT_15); // -RES, -C/D
-//    mPORTDSetPinsDigitalOut(BIT_1 | BIT_4 | BIT_5 | BIT_11); // Backlite, RD, WR, CS
     mPORTDSetPinsDigitalOut(BIT_1); // Backlite
-    //mPORTESetPinsDigitalOut(BIT_0 | BIT_1 | BIT_2 | BIT_3 | BIT_4 | BIT_5 | BIT_6 | BIT_7 ); // Data
-//    mPORTCSetPinsDigitalOut(BIT_1); // -C/D temporary XXX
 
 
     LCD_RESET = LCD_RESET_ON;
@@ -179,9 +145,11 @@ void Initial_SSD1963(void) {
     Write_Data(0x00); //SET even/odd line RGB seq.=RGB
 
     Command_Write(0xf0, 0x00); //SET pixel data I/F format=8bit
-    //Command_Write(0x3a, 0x60); // SET R G B format = 6 6 6
+    Command_Write(0x3a, 0x60); // SET R G B format = 6 6 6
 
+#ifdef PORTRAIT
     Command_Write(0x36,0xa0);   //portrait mode
+#endif
 
     Write_Command(0xe2); //SET PLL freq=113.33MHz  ;
     Write_Data(0x22);
@@ -259,32 +227,30 @@ void FULL_ON(unsigned long dat) {
             SendData(dat);
         }
     }
-
 }
 
 void test1(void) {
     unsigned int x, y;
-    WindowSet(0, 319, 0, 239);
+
+    WindowSet(0, MAX_X, 0, MAX_Y);
     Write_Command(0x2c);
     unsigned long color = 0;
-    for (x = 0; x < 240; x++) {
-        for (y = 0; y < 320; y++) {
+    for (x = 0; x < MAX_X+1; x++) {
+        for (y = 0; y < MAX_Y+1; y++) {
             SendData(color);
             color += 8;
         }
     }
-
 }
 
 void test2(void) {
     unsigned int x, y;
-    int max_x = 319;
-    int max_y = 239;
-    WindowSet(0, max_x, 0, max_y);
+
+    WindowSet(0, MAX_X, 0, MAX_Y);
     Write_Command(0x2c);
     uint32_t colors[] = { 0, 0x343434, 0x888888, 0xbbbbbb, 0xffffff, 0xff0000, 0x00ff00, 0x0000ff };
-    for (x = 0; x < max_x+1; x++) {
-        for (y = 0; y < max_y+1; y++) {
+    for (x = 0; x < MAX_X+1; x++) {
+        for (y = 0; y < MAX_Y+1; y++) {
             SendData(colors[(x/4) % 8]);
         }
     }
@@ -345,6 +311,10 @@ SHOWPIC() {
 }
 
 //=======================================
+ void clearWDT(void){
+  //   ClrWdt();
+ }
+//=======================================
 
 void lcd_demo() {
     bool led = false;
@@ -360,8 +330,10 @@ void lcd_demo() {
         //STP_SC();
         //Command_Write(0x36, 0x08); // set color mode to BGR
         SHOWPIC();
+        clearWDT();
         delay_ms(2000);
         test1();
+        clearWDT();
         delay_ms(4000);
         test2();
         delay_ms(4000);

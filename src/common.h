@@ -2,6 +2,7 @@
 #include <plib.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include <p32xxxx.h>
 
 /******************************************************************************/
 #define VERSION_MAJOR "00"
