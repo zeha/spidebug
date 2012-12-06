@@ -143,7 +143,7 @@ void rtc_init(void) {
 }
 
 void init(void) {
-    DDPCONbits.JTAGEN = 1;
+    DDPCONbits.JTAGEN = 0;
     SYSTEMConfigPerformance(SYS_FREQ);
     INTConfigureSystem(INT_SYSTEM_CONFIG_MULT_VECTOR);
 

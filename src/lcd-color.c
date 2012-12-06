@@ -11,12 +11,12 @@
 #include "common.h"
 
 
-#define LCD_RESET LATBbits.LATB13
+#define LCD_RESET LATBbits.LATB14
 #define LCD_RESET_ON 0
 #define LCD_RESET_OFF 1
 
-//#define LCD_CD    LATBbits.LATB14
-#define LCD_CD    LATCbits.LATC1
+#define LCD_CD    LATBbits.LATB15
+//#define LCD_CD    LATCbits.LATC1
 #define LCD_CD_C  0
 #define LCD_CD_D  1
 
@@ -127,12 +127,12 @@ void SendData(unsigned long color) {
 //======================================================
 
 void Initial_SSD1963(void) {
-    mPORTBSetPinsDigitalOut(BIT_13); // -RES
-//    mPORTBSetPinsDigitalOut(BIT_13 | BIT_14); // -RES, -C/D
+//    mPORTBSetPinsDigitalOut(BIT_14); // -RES
+    mPORTBSetPinsDigitalOut(BIT_14 | BIT_15); // -RES, -C/D
 //    mPORTDSetPinsDigitalOut(BIT_1 | BIT_4 | BIT_5 | BIT_11); // Backlite, RD, WR, CS
     mPORTDSetPinsDigitalOut(BIT_1); // Backlite
     //mPORTESetPinsDigitalOut(BIT_0 | BIT_1 | BIT_2 | BIT_3 | BIT_4 | BIT_5 | BIT_6 | BIT_7 ); // Data
-    mPORTCSetPinsDigitalOut(BIT_1); // -C/D temporary XXX
+//    mPORTCSetPinsDigitalOut(BIT_1); // -C/D temporary XXX
 
 
     LCD_RESET = LCD_RESET_ON;
@@ -142,10 +142,13 @@ void Initial_SSD1963(void) {
     // Note: CPU Errata: WAITE=1 is 0 wait cycles!
     // Note: 80MHz Peripheral Bus clock -> 12.5ns
     //       RD low must be 75ns min.
+    // Pin 71 = PMACS1 = Disp. #CS
+    // Pin 44 = PMALL/PMA0 = RB15 = DSP-#C/D   - nicht im PM verwenden!
+    // Pin 43 = PMALH/PMA1 = RB14 = DSP-#RES   - nicht im PM verwenden!
     mPMPOpen(
             PMP_CS2_CS1_EN | PMP_MUX_OFF | PMP_READ_WRITE_EN | PMP_WRITE_POL_LO | PMP_READ_POL_LO | PMP_CS1_POL_LO | PMP_TTL | PMP_IDLE_CON,
             PMP_IRQ_OFF | PMP_DATA_BUS_8 | PMP_MODE_MASTER2 | PMP_AUTO_ADDR_OFF | PMP_WAIT_BEG_1 | PMP_WAIT_MID_0 | PMP_WAIT_END_1,
-            PMP_PEN_14,
+            PMP_PEN_14 ,
             PMP_INT_OFF
             );
     PMPSetAddress(0x4000); // CS1 = PMA 14!!!
