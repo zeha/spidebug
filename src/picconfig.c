@@ -11,7 +11,7 @@
 // 
 
 #ifdef __DEBUG
-  #pragma message("********************** Debung build ****************************")
+  #pragma message("********************** Debug build ****************************")
   #pragma config DEBUG = ON
 #else
   #pragma message("********************** Release build ****************************")
