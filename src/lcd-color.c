@@ -20,8 +20,8 @@
 #endif
 
 // Display size
-#define MAX_X 319       // Pixel
-#define MAX_Y 239       // Pixel
+#define MAX_X    (320-1) // Pixel
+#define MAX_Y    (240-1) // Pixel
 
 
 #define LCD_RESET LATBbits.LATB14
@@ -52,8 +52,29 @@
 
 unsigned char pic[28800];
 
-//;******************************************************************************
-//;sed1330 funtion
+#define SSD1963_CMD_SOFT_RESET             0x01
+#define SSD1963_CMD_GET_POWER_MODE         0x0A
+#define SSD1963_CMD_GET_ADDRESS_MODE       0x0B
+#define SSD1963_CMD_GET_DISPLAY_MODE       0x0D
+#define SSD1963_CMD_GET_TEAR_EFFECT_STATUS 0x0E
+#define SSD1963_CMD_ENTER_PARTIAL_MODE     0x12
+#define SSD1963_CMD_ENTER_WHOLE_MODE       0x13
+#define SSD1963_CMD_SET_DISPLAY_OFF        0x28
+#define SSD1963_CMD_SET_DISPLAY_ON         0x29
+#define SSD1963_CMD_SET_COLUMN_ADDRESS     0x2A
+#define SSD1963_CMD_SET_PAGE_ADDRESS       0x2B
+#define SSD1963_CMD_WRITE_MEMORY_START     0x2C
+#define SSD1963_CMD_READ_MEMORY_START      0x2E
+#define SSD1963_CMD_SET_PARTIAL_AREA       0x30
+#define SSD1963_CMD_SET_ADDRESS_MODE       0x36
+#define SSD1963_CMD_GET_LCD_MODE           0xB0
+#define SSD1963_CMD_SET_LCD_MODE           0xB1
+#define SSD1963_CMD_SET_PIXEL_DATA_IF      0xF0
+
+#define COLOR_BLACK                        0x000000
+
+static void lcd_set_window(unsigned int x_start, unsigned int x_end, unsigned int y_start, unsigned int y_end);
+static void lcd_fill(unsigned long color);
 
 void Write_Command(unsigned char command) {
     LCD_CD = LCD_CD_C;
@@ -62,15 +83,11 @@ void Write_Command(unsigned char command) {
     //   delay_50ns(); // WR high/PMBUSY to CE high (50ns)  -- 250ns done
 }
 
-//;******************************************************************************
-
 void Write_Data(unsigned char data1) {
     LCD_CD = LCD_CD_D;
     PMDIN = data1; // CS low to WR low: 50ns (WAITB), WR low to WR high: 100ns (WAITM)
     while (mIsPMPBusy()); // 200ns done
 }
-//==============================================================
-
 #define Write_Data_Fast(data1) {LCD_CD = LCD_CD_D; PMDIN = data1;}
 // LCD_CS = 12.5 nS
 // CS low to WR low: 50ns (WAITB), WR low to WR high: 100ns (WAITM)
@@ -80,7 +97,6 @@ void Command_Write(unsigned char command, unsigned char data1) {
     Write_Command(command);
     Write_Data(data1);
 }
-//==============================================================
 
 void SendData(unsigned long color) {
     Write_Data_Fast((color) >> 16); // color is red
@@ -92,17 +108,13 @@ void SendData(unsigned long color) {
  //   Write_Data(color); // color is blue
 
 }
-//======================================================
-// initial
-//======================================================
 
-void Initial_SSD1963(void) {
+static void init_SSD1963(void) {
     mPORTBSetPinsDigitalOut(BIT_14 | BIT_15); // -RES, -C/D
     mPORTDSetPinsDigitalOut(BIT_1); // Backlite
 
-
     LCD_RESET = LCD_RESET_ON;
-    LCD_BACKLITE = LCD_BACKLITE_ON; // backlite on
+    LCD_BACKLITE = LCD_BACKLITE_OFF; // turn off backlight while we reinit the lcd
 
     // Init Parallel Master Port
     // Note: CPU Errata: WAITE=1 is 0 wait cycles!
@@ -127,9 +139,9 @@ void Initial_SSD1963(void) {
     LCD_RESET = LCD_RESET_OFF;
     delay_ms(3);
 
-    Write_Command(0x01); //Software Reset
-    Write_Command(0x01);
-    Write_Command(0x01);
+    Write_Command(SSD1963_CMD_SOFT_RESET);
+    Write_Command(SSD1963_CMD_SOFT_RESET);
+    Write_Command(SSD1963_CMD_SOFT_RESET);
     delay_ms(5);
     Command_Write(0xe0, 0x01); //START PLL
     delay_ms(1);
@@ -144,7 +156,7 @@ void Initial_SSD1963(void) {
     Write_Data(0xef); //SET vertical size=240-1 LowByte
     Write_Data(0x00); //SET even/odd line RGB seq.=RGB
 
-    Command_Write(0xf0, 0x00); //SET pixel data I/F format=8bit
+    Command_Write(SSD1963_CMD_SET_PIXEL_DATA_IF, 0x00); //SET pixel data I/F format=8bit
     Command_Write(0x3a, 0x60); // SET R G B format = 6 6 6
 
 #ifdef PORTRAIT
@@ -184,46 +196,35 @@ void Initial_SSD1963(void) {
     Write_Data(0x00); //SET Vsync pulse start position
     Write_Data(0x00);
 
-    Write_Command(0x2a); //SET column address
-    Write_Data(0x00); //SET start column address=0
-    Write_Data(0x00);
-    Write_Data(0x01); //SET end column address=320
-    Write_Data(0x3f);
-
-    Write_Command(0x2b); //SET page address
-    Write_Data(0x00); //SET start page address=0
-    Write_Data(0x00);
-    Write_Data(0x00); //SET end page address=240
-    Write_Data(0xef);
-
-    Write_Command(0x29); //SET display on
-    Write_Command(0x2c);
+    // turn on display, fill with black pixels, then turn on backlight.
+    //lcd_set_window(0, MAX_X, 0, MAX_Y);
+    Write_Command(SSD1963_CMD_SET_DISPLAY_ON);
+    Write_Command(SSD1963_CMD_WRITE_MEMORY_START);
+    lcd_fill(COLOR_BLACK);
+    LCD_BACKLITE = LCD_BACKLITE_ON; // backlite on
 
 }
-//======================================================
 
-void WindowSet(unsigned int x_start, unsigned int x_end, unsigned int y_start, unsigned int y_end) {
-    Write_Command(0x2a); //SET page address
-    Write_Data((x_start) >> 8); //SET start page address=0
+void lcd_set_window(unsigned int x_start, unsigned int x_end, unsigned int y_start, unsigned int y_end) {
+    Write_Command(SSD1963_CMD_SET_COLUMN_ADDRESS);
+    Write_Data((x_start) >> 8);
     Write_Data(x_start);
-    Write_Data((x_end) >> 8); //SET end page address=320
+    Write_Data((x_end) >> 8);
     Write_Data(x_end);
 
-    Write_Command(0x2b); //SET column address
-    Write_Data((y_start) >> 8); //SET start column address=0
+    Write_Command(SSD1963_CMD_SET_PAGE_ADDRESS);
+    Write_Data((y_start) >> 8);
     Write_Data(y_start);
-    Write_Data((y_end) >> 8); //SET end column address=240
+    Write_Data((y_end) >> 8);
     Write_Data(y_end);
 }
 
-//=======================================
-
-void FULL_ON(unsigned long color) {
+static void lcd_fill(unsigned long color) {
     unsigned int x, y;
-    WindowSet(0x0000, 0x013f, 0x0000, 0x00ef);
-    Write_Command(0x2c);
-    for (x = 0; x < 240; x++) {
-        for (y = 0; y < 320; y++) {
+    lcd_set_window(0, MAX_X, 0, MAX_Y);
+    Write_Command(SSD1963_CMD_WRITE_MEMORY_START);
+    for (x = 0; x <= MAX_X; x++) {
+        for (y = 0; y <= MAX_Y; y++) {
             SendData(color);
         }
     }
@@ -232,11 +233,11 @@ void FULL_ON(unsigned long color) {
 void test1(void) {
     unsigned int x, y;
 
-    WindowSet(0, MAX_X, 0, MAX_Y);
-    Write_Command(0x2c);
+    lcd_set_window(0, MAX_X, 0, MAX_Y);
+    Write_Command(SSD1963_CMD_WRITE_MEMORY_START);
     unsigned long color = 0;
-    for (x = 0; x < MAX_X+1; x++) {
-        for (y = 0; y < MAX_Y+1; y++) {
+    for (x = 0; x <= MAX_X; x++) {
+        for (y = 0; y <= MAX_Y; y++) {
             SendData(color);
             color += 8;
         }
@@ -246,22 +247,21 @@ void test1(void) {
 void test2(void) {
     unsigned int x, y;
 
-    WindowSet(0, MAX_X, 0, MAX_Y);
-    Write_Command(0x2c);
+    lcd_set_window(0, MAX_X, 0, MAX_Y);
+    Write_Command(SSD1963_CMD_WRITE_MEMORY_START);
     uint32_t colors[] = { 0, 0x343434, 0x888888, 0xbbbbbb, 0xffffff, 0xff0000, 0x00ff00, 0x0000ff };
-    for (x = 0; x < MAX_X+1; x++) {
-        for (y = 0; y < MAX_Y+1; y++) {
+    for (x = 0; x <= MAX_X; x++) {
+        for (y = 0; y <= MAX_Y; y++) {
             SendData(colors[(x/4) % 8]);
         }
     }
 
 }
-//==========================================
 
 void FULL_RAM(unsigned long dat) {
     unsigned int x, y;
-    WindowSet(0x00A0, 0x00B3, 0x0078, 0x00B3);
-    Write_Command(0x2c);
+    lcd_set_window(0x00A0, 0x00B3, 0x0078, 0x00B3);
+    Write_Command(SSD1963_CMD_WRITE_MEMORY_START);
     for (x = 0; x < 60; x++) {
         for (y = 0; y < 20; y++) {
             SendData(dat);
@@ -269,11 +269,10 @@ void FULL_RAM(unsigned long dat) {
     }
 
 }
-//==========================================
 
 void black_frame_with_border(void) {
     unsigned int i, j;
-    Write_Command(0x2c);
+    Write_Command(SSD1963_CMD_WRITE_MEMORY_START);
     for (j = 0; j < 40; j++) {
         for (i = 0; i < 8; i++) {
             SendData(0xffffff); //
@@ -296,13 +295,12 @@ void black_frame_with_border(void) {
     }
 
 }
-//=======================================
 
 void show_picture(void) {
     unsigned int x;
     //unsigned char z;
-    WindowSet(0x0000, 319, 0x0000, 29);
-    Write_Command(0x2c);
+    lcd_set_window(0, MAX_X, 0, 29);
+    Write_Command(SSD1963_CMD_WRITE_MEMORY_START);
 
     for (x = 0; x < 28800; x++) {
         Write_Data(pic[x]);
@@ -310,14 +308,24 @@ void show_picture(void) {
 
 }
 
-//=======================================
 void clearWDT(void){
     //   ClrWdt();
 }
-//=======================================
+
+void xxFULL_RAM(unsigned long dat) {
+    unsigned int x, y;
+    lcd_set_window(160, 179, 120, 131);
+    Write_Command(SSD1963_CMD_WRITE_MEMORY_START);
+    for (x = 0; x < 60; x++) {
+        for (y = 0; y < 20; y++) {
+            SendData(dat);
+        }
+    }
+
+}
 
 void lcd_init(void) {
-    Initial_SSD1963();
+    init_SSD1963();
     black_frame_with_border();
 }
 
@@ -345,22 +353,22 @@ void lcd_demo_loop(void) {
         //STP_SC();
         //FULL_ON(0x000000);
         //STP_SC();
-        FULL_ON(0xff0000); // red
+        lcd_fill(0xff0000); // red
         //STP_SC();
         FULL_RAM(0xffffff);	//
         delay_ms(1000);
         //STP_SC();
         //FULL_ON(0x9fff00);
         //STP_SC();
-        FULL_ON(0x00ff00); // green
+        lcd_fill(0x00ff00); // green
         //STP_SC();
-        FULL_ON(0x0000ff); // blue
+        lcd_fill(0x0000ff); // blue
         delay_ms(1000);
         // //STP_SC();
-        FULL_ON(0xff00ff); // purple
+        lcd_fill(0xff00ff); // purple
         delay_ms(1000);
         // //STP_SC();
-        FULL_ON(0xffffff); // white
+        lcd_fill(0xffffff); // white
         delay_ms(1000);
         // //STP_SC();
         //  LCD_BACKLITE = LCD_BACKLITE_OFF;         // backlite on
