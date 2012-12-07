@@ -31,7 +31,7 @@ void led8_set(BOOL onoff);
 void leds_init(void);
 
 // lcd-color.c
-void lcd_demo(void);
-
+void lcd_init(void);
+void lcd_demo_loop(void);
 
 /* end */

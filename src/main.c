@@ -156,6 +156,7 @@ void init(void) {
 //    delay(config_power_on_delay*1000);
 
     leds_init();
+    lcd_init();
 
 //    INTEnableInterrupts();
     delay_ms(100);
@@ -193,7 +194,7 @@ int main(void) {
         led7_set(FALSE);
         led8_set(FALSE);
         delay_ms(400);
-        lcd_demo();
+        lcd_demo_loop();
 
 // Main Loop
     }

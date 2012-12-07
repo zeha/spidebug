@@ -311,14 +311,18 @@ SHOWPIC() {
 }
 
 //=======================================
- void clearWDT(void){
-  //   ClrWdt();
- }
+void clearWDT(void){
+    //   ClrWdt();
+}
 //=======================================
 
-void lcd_demo() {
-    bool led = false;
+void lcd_init(void) {
     Initial_SSD1963();
+    FRAME();
+}
+
+void lcd_demo_loop(void) {
+    bool led = false;
 
     while (1) {
         //    LCD_BACKLITE = LCD_BACKLITE_ON;         // backlite on
