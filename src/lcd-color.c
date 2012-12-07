@@ -202,29 +202,29 @@ void Initial_SSD1963(void) {
 }
 //======================================================
 
-WindowSet(unsigned int s_x, unsigned int e_x, unsigned int s_y, unsigned int e_y) {
+void WindowSet(unsigned int x_start, unsigned int x_end, unsigned int y_start, unsigned int y_end) {
     Write_Command(0x2a); //SET page address
-    Write_Data((s_x) >> 8); //SET start page address=0
-    Write_Data(s_x);
-    Write_Data((e_x) >> 8); //SET end page address=320
-    Write_Data(e_x);
+    Write_Data((x_start) >> 8); //SET start page address=0
+    Write_Data(x_start);
+    Write_Data((x_end) >> 8); //SET end page address=320
+    Write_Data(x_end);
 
     Write_Command(0x2b); //SET column address
-    Write_Data((s_y) >> 8); //SET start column address=0
-    Write_Data(s_y);
-    Write_Data((e_y) >> 8); //SET end column address=240
-    Write_Data(e_y);
+    Write_Data((y_start) >> 8); //SET start column address=0
+    Write_Data(y_start);
+    Write_Data((y_end) >> 8); //SET end column address=240
+    Write_Data(y_end);
 }
 
 //=======================================
 
-void FULL_ON(unsigned long dat) {
+void FULL_ON(unsigned long color) {
     unsigned int x, y;
     WindowSet(0x0000, 0x013f, 0x0000, 0x00ef);
     Write_Command(0x2c);
     for (x = 0; x < 240; x++) {
         for (y = 0; y < 320; y++) {
-            SendData(dat);
+            SendData(color);
         }
     }
 }
@@ -271,7 +271,7 @@ void FULL_RAM(unsigned long dat) {
 }
 //==========================================
 
-FRAME() {
+void black_frame_with_border(void) {
     unsigned int i, j;
     Write_Command(0x2c);
     for (j = 0; j < 40; j++) {
@@ -298,7 +298,7 @@ FRAME() {
 }
 //=======================================
 
-SHOWPIC() {
+void show_picture(void) {
     unsigned int x;
     //unsigned char z;
     WindowSet(0x0000, 319, 0x0000, 29);
@@ -318,7 +318,7 @@ void clearWDT(void){
 
 void lcd_init(void) {
     Initial_SSD1963();
-    FRAME();
+    black_frame_with_border();
 }
 
 void lcd_demo_loop(void) {
@@ -330,10 +330,10 @@ void lcd_demo_loop(void) {
         led3_set(led);
         led = !led;
 
-        FRAME();
+        black_frame_with_border();
         //STP_SC();
         //Command_Write(0x36, 0x08); // set color mode to BGR
-        SHOWPIC();
+        show_picture();
         clearWDT();
         delay_ms(2000);
         test1();
