@@ -6,6 +6,7 @@
  */
 
 #include "common.h"
+#include "unit.h"
 #include <stdbool.h>
 
 // EEPROM Lib
@@ -157,11 +158,10 @@ void init(void) {
 
     leds_init();
     lcd_init();
+    unit_init();
+    serial_init();
 
-//    INTEnableInterrupts();
-    delay_ms(100);
-
-    // USB?
+    INTEnableSystemMultiVectoredInt();
 }
 
 
@@ -180,22 +180,23 @@ void __attribute__ ((noreturn)) __stack_chk_fail(void) {
 }
 
 int main(void) {
-    int last_dataid = 0;
-    unsigned long startup_time;
 
     init();
 
-    while (1) {
-        led1_set(FALSE);
-        led7_set(TRUE);
-        led8_set(TRUE);
-        delay_ms(100);
-        led1_set(TRUE);
-        led7_set(FALSE);
-        led8_set(FALSE);
-        delay_ms(400);
-        lcd_demo_loop();
+    serial_begin_tx(0, 0xff, 2, "HI");
 
-// Main Loop
+    bool led = false;
+    int i = 0;
+    while (1) {
+        delay_ms(20);
+        i++;
+
+        serial_tick();
+
+        if (i%50 == 0) {
+            led1_set(led);
+            led = !led;
+        }
+
     }
 }
