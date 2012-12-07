@@ -185,15 +185,20 @@ int main(void) {
 
     serial_begin_tx(0, 0xff, 2, "HI");
 
+    USBDeviceInit();
+#ifdef USB_INTERRUPT
+    USBDeviceAttach();
+#endif
+
     bool led = false;
     int i = 0;
     while (1) {
-        delay_ms(20);
+        USBDeviceTasks();
         i++;
 
         serial_tick();
 
-        if (i%50 == 0) {
+        if (i%50000 == 0) {
             led1_set(led);
             led = !led;
         }
