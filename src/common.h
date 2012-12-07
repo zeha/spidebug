@@ -9,29 +9,6 @@
 #define VERSION_MINOR "01"
 /******************************************************************************/
 
-// activate for test / sender circuit!
-// #define BUFFER_SENDER
-
-// #define __FILE__
-// #pragma message("File: " __FILE__)
-#ifdef BUFFER_SENDER
-// Transmitter - test version
-   #if __FILE__=="main.c"
-       #pragma message("Test / Sender Version, Ver.: " VERSION_MAJOR "." VERSION_MINOR)
-   #endif
-   #undef BUFFER_RECEIVER
-#else
-// Receiver - production version
-//   #warning ("Production Version, Ver.: " VERSION_MAJOR "." VERSION_MINOR)
-   // #ifdef main.c
-      #pragma message("Production Version, Ver.: " VERSION_MAJOR "." VERSION_MINOR)
-      //#undef main.c
-   //#endif
-   #define BUFFER_RECEIVER
-#endif
-
-
-
 #undef HAVE_RTCC
 
 // 80MHz

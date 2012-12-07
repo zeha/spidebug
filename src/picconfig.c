@@ -11,10 +11,10 @@
 // 
 
 #ifdef __DEBUG
-  #pragma message("********************** Debug build ****************************")
+  #pragma message("*** DEBUG   build Version "VERSION_MAJOR"."VERSION_MINOR" ***")
   #pragma config DEBUG = ON
 #else
-  #pragma message("********************** Release build ****************************")
+  #pragma message("*** Release build Version "VERSION_MAJOR"."VERSION_MINOR" ***")
   #pragma config DEBUG = OFF              // Background Debugger Enable (Debugger is disabled)
 #endif
 
