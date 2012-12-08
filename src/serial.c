@@ -2,7 +2,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include "unit.h"
-#include "../../ch-/sw/shared/generated.h"
+#include "../shared/generated.h"
 
 enum STATE {
     state_listening,
