@@ -9,6 +9,7 @@
 /******************************************************************************/
 
 #undef HAVE_RTCC
+#undef SERIAL_USE_BUS
 
 // 80MHz
 #define SYS_FREQ 80000000L
@@ -40,6 +41,9 @@ void lcd_demo_loop(void);
 
 // serial.c
 void serial_init(void);
+#define SERIAL_BUFFER_SIZE 64
+extern uint8_t serial_rx_buffer[SERIAL_BUFFER_SIZE];
+extern uint8_t* serial_rx_pointer;
 
 // usb.c
 void usb_init(void);

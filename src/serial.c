@@ -31,12 +31,12 @@ static enum SERIAL_COMMANDS command;
 int serial_messages_received = 0;
 int serial_messages_processed = 0;
 
-static uint8_t rx_buffer[32];
-static uint8_t* rx_pointer;
+uint8_t serial_rx_buffer[SERIAL_BUFFER_SIZE];
+uint8_t* serial_rx_pointer;
 static uint8_t rx_length;
 static uint8_t rx_received_data_length;
 
-uint8_t serial_tx_buffer[32];
+uint8_t serial_tx_buffer[SERIAL_BUFFER_SIZE];
 uint8_t serial_rx_error_too_much_data = 0;
 static uint8_t* tx_pointer = 0;
 static uint8_t* tx_pointer_start = 0;
@@ -53,7 +53,6 @@ static unsigned char tx_rombuffer_pong[] = "PONG";
 
 #define ADDRESS_Z 0
 #define SYNC_BYTE 'U'
-
 
 #ifdef __PICC18__
 // should select 115200 (actually 117647 at 32mhz)
@@ -93,6 +92,8 @@ static unsigned char tx_rombuffer_pong[] = "PONG";
 #endif
 
 void serial_init(void) {
+    serial_rx_pointer = serial_rx_buffer;
+
     serial_state = state_listening;
     serial_state_since = 0;
 #ifdef SOFTWARE_ECHO_CONTROL
@@ -147,7 +148,7 @@ void serial_init(void) {
 
 int pending_command = 0;
 
-void serial_handle_rx(void) {
+void serial_handle_rx_bus(void) {
     uint8_t byte = RX_REG;
 
     switch (serial_state) {
@@ -181,8 +182,8 @@ void serial_handle_rx(void) {
         }
         serial_messages_received++;
 
-        rx_pointer = rx_buffer;
-        *rx_pointer = '\0';
+        serial_rx_pointer = serial_rx_buffer;
+        *serial_rx_pointer = '\0';
         rx_length = 0;
         rx_received_data_length = 0;
 
@@ -214,7 +215,7 @@ void serial_handle_rx(void) {
 
         serial_state = state_rx_data;
         serial_state_since = 0;
-        if (rx_received_data_length > sizeof(rx_buffer)-1) {
+        if (rx_received_data_length > sizeof(serial_rx_buffer)-1) {
             ++serial_rx_error_too_much_data;
             serial_state = state_listening;
             serial_state_since = 0;
@@ -252,7 +253,7 @@ void serial_handle_rx(void) {
 
             rx_received_data_length++;
 
-            *rx_pointer = byte;
+            *serial_rx_pointer = byte;
 
             if (rx_received_data_length == rx_length) {
                 // done
@@ -271,8 +272,8 @@ void serial_handle_rx(void) {
                 // NOTE: do not set serial_state here, as func_command_*
                 // might have changed it already (think tx())
             } else {
-                rx_pointer++;
-                *rx_pointer = '\0';
+                serial_rx_pointer++;
+                *serial_rx_pointer = '\0';
             }
         }
         break;
@@ -280,6 +281,19 @@ void serial_handle_rx(void) {
         // TX
         break;
     }
+}
+
+void serial_handle_rx_raw(void) {
+    uint8_t byte = RX_REG;
+    rx_received_data_length++;
+
+    if (serial_rx_pointer >= serial_rx_buffer+sizeof(serial_rx_buffer)) {
+        serial_rx_pointer = serial_rx_buffer;
+    }
+
+    *serial_rx_pointer = byte;
+    serial_rx_pointer++;
+    *serial_rx_pointer = '\0';
 }
 
 bool serial_handle_tx(void) {
@@ -398,8 +412,8 @@ void serial_begin_tx_raw(uint8_t length, uint8_t *buffer) {
 }
 
 void func_command_set(void) {
-    uint16_t val = rx_buffer[1] + (rx_buffer[2]<<8);
-    MACRO_SET_CONF_VAR(rx_buffer[0], val);
+    uint16_t val = serial_rx_buffer[1] + (serial_rx_buffer[2]<<8);
+    MACRO_SET_CONF_VAR(serial_rx_buffer[0], val);
 }
 
 void func_command_ping(void) {
@@ -425,7 +439,11 @@ void __ISR(_UART2_VECTOR, ipl2) serial_isr(void) {
     if (IFS1bits.U2RXIF) {
         while (U2STAbits.URXDA)
         {
-            serial_handle_rx();
+#ifdef SERIAL_USE_BUS
+            serial_handle_rx_bus();
+#else
+            serial_handle_rx_raw();
+#endif
         }
         mU2RXClearIntFlag();
     }
