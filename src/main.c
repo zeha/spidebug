@@ -184,7 +184,7 @@ int main(void) {
 
     init();
 
-    serial_begin_tx(0, 0xff, 2, "HI");
+    //serial_begin_tx(0, 0xff, 2, "HI");
 
     bool led = false;
     int i = 0;
