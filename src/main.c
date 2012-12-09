@@ -160,6 +160,7 @@ void init(void) {
     lcd_init();
     unit_init();
     serial_init();
+    usb_init();
 
     INTEnableSystemMultiVectoredInt();
 }
@@ -185,18 +186,14 @@ int main(void) {
 
     serial_begin_tx(0, 0xff, 2, "HI");
 
-    USBDeviceInit();
-#ifdef USB_INTERRUPT
-    USBDeviceAttach();
-#endif
-
     bool led = false;
     int i = 0;
+
     while (1) {
-        USBDeviceTasks();
         i++;
 
         serial_tick();
+        usb_tick();
 
         if (i%50000 == 0) {
             led1_set(led);

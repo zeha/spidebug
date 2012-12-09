@@ -172,8 +172,8 @@ ROM USB_DEVICE_DESCRIPTOR device_dsc=
     0x00,                   // Subclass code
     0x00,                   // Protocol code
     USB_EP0_BUFF_SIZE,          // Max packet size for EP0, see usb_config.h
-    0x04D8,                 // Vendor ID
-    0x000A,                 // Product ID: CDC RS-232 Emulation Demo
+    MY_VID,                 // Vendor ID
+    MY_PID,                 // Product ID
     0x0100,                 // Device release number in BCD format
     0x01,                   // Manufacturer string index
     0x02,                   // Product string index
@@ -266,23 +266,28 @@ ROM BYTE configDescriptor1[]={
     0x00,                       //Interval
 };
 
-
 //Language code string descriptor
-ROM struct{BYTE bLength;BYTE bDscType;WORD string[1];} sd000={
-sizeof(sd000),USB_DESCRIPTOR_STRING,{0x0409}};
+ROM struct{ BYTE bLength; BYTE bDscType; WORD string[1]; } sd000 =
+{
+    sizeof(sd000),
+    USB_DESCRIPTOR_STRING,
+    {0x0409}
+};
 
 //Manufacturer string descriptor
-ROM struct{BYTE bLength;BYTE bDscType;WORD string[25];}sd001={
-sizeof(sd001),USB_DESCRIPTOR_STRING,
-{'M','i','c','r','o','c','h','i','p',' ',
-'T','e','c','h','n','o','l','o','g','y',' ','I','n','c','.'
-}};
+ROM struct{ BYTE bLength; BYTE bDscType; WORD string[8]; } sd001 =
+{
+    sizeof(sd001),
+    USB_DESCRIPTOR_STRING,
+    {'z','e','h','a','.','a','t', 0}
+};
 
 //Product string descriptor
-ROM struct{BYTE bLength;BYTE bDscType;WORD string[25];}sd002={
-sizeof(sd002),USB_DESCRIPTOR_STRING,
-{'C','D','C',' ','R','S','-','2','3','2',' ',
-'E','m','u','l','a','t','i','o','n',' ','D','e','m','o'}
+ROM struct { BYTE bLength; BYTE bDscType; WORD string[16]; } sd002 =
+{
+    sizeof(sd002),
+    USB_DESCRIPTOR_STRING,
+    {'S','P','I',' ','D','e','b','u','g',' ','B','o','a','r','d', 0}
 };
 
 //Array of configuration descriptors
@@ -295,7 +300,8 @@ ROM BYTE *ROM USB_SD_Ptr[]=
 {
     (ROM BYTE *ROM)&sd000,
     (ROM BYTE *ROM)&sd001,
-    (ROM BYTE *ROM)&sd002
+    (ROM BYTE *ROM)&sd002,
+    0
 };
 
 #if defined(__18CXX)

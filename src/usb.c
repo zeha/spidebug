@@ -4,6 +4,52 @@
 #include "USB/usb.h"
 #include "USB/usb_function_cdc.h"
 
+// usb_init must init this to 0 for CDC to work
+USB_HANDLE  lastTransmission;
+
+static uint8_t *usb_serial_rx;
+
+void usb_init(void) {
+    lastTransmission = 0;
+    usb_serial_rx = serial_rx_pointer;
+
+    // USB Vbus sense
+    usb_init_bus_sense();
+    USBDeviceInit();
+#ifdef USB_INTERRUPT
+    USBDeviceAttach();
+#endif
+    CDCSetBaudRate(115200);
+    CDCSetCharacterFormat(NUM_STOP_BITS_1);
+    CDCSetDataSize(8);
+    CDCSetParity(PARITY_NONE);
+}
+
+void usb_tick(void) {
+    USBDeviceTasks();
+    if (USBGetDeviceState() >= CONFIGURED_STATE && USBSuspendControl == 0) {
+        char buffer[64];
+        unsigned int len = getsUSBUSART(buffer, sizeof(buffer));
+        if (len > 0) {
+            serial_begin_tx_raw(len, buffer);
+        }
+        if (USBUSARTIsTxTrfReady() && usb_serial_rx != serial_rx_pointer) {
+            len = serial_rx_pointer - usb_serial_rx;
+            if (len > sizeof(serial_rx_buffer)) {
+                // wraparound
+                len = sizeof(serial_rx_buffer) - (usb_serial_rx - serial_rx_buffer);
+                putUSBUSART(usb_serial_rx, len);
+                usb_serial_rx = serial_rx_buffer;
+            }
+            len = serial_rx_pointer - usb_serial_rx;
+            putUSBUSART(usb_serial_rx, len);
+            usb_serial_rx = serial_rx_pointer;
+        }
+
+        CDCTxService();
+    }
+}
+
 BOOL USER_USB_CALLBACK_EVENT_HANDLER(int event, void *pdata, WORD size)
 {
     switch(event)

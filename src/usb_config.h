@@ -58,15 +58,15 @@ SUBSTITUTE GOODS, TECHNOLOGY, SERVICES, OR ANY CLAIMS BY THIRD PARTIES
 
 // Peripheral Configuration
 
-#define MY_VID            0x04D8
-#define MY_PID            0x0000
+#define MY_VID            0xfffe
+#define MY_PID            0x1485
 #define USB_POLLING
 #define USB_PULLUP_OPTION      USB_PULLUP_ENABLE
 #define USB_TRANSCEIVER_OPTION USB_INTERNAL_TRANSCEIVER
 #define USB_EP0_BUFF_SIZE     8
 #define USB_MAX_NUM_INT       (0+1)
 #define USB_MAX_EP_NUMBER 6
-#define USB_NUM_STRING_DESCRIPTORS 2
+#define USB_NUM_STRING_DESCRIPTORS 3
 
 //#define USB_DISABLE_SOF_HANDLER                 
 //#define USB_DISABLE_ERROR_HANDLER               
@@ -76,19 +76,28 @@ SUBSTITUTE GOODS, TECHNOLOGY, SERVICES, OR ANY CLAIMS BY THIRD PARTIES
 #define USB_USER_CONFIG_DESCRIPTOR         USB_CD_Ptr
 #define USB_USER_CONFIG_DESCRIPTOR_INCLUDE extern ROM BYTE *ROM USB_CD_Ptr[]
 
+#define USB_ENABLE_ALL_HANDLERS
+
 // CDC Function Configuration
 
 #define USB_USE_CDC
 #define CDC_COMM_INTF_ID        0x00
-#define CDC_COMM_EP             2
-#define CDC_COMM_IN_EP_SIZE     8
+#define CDC_COMM_EP             1
+#define CDC_COMM_IN_EP_SIZE     10
 #define CDC_DATA_INTF_ID        0x01
-#define CDC_DATA_EP             3
+#define CDC_DATA_EP             2
 #define CDC_DATA_IN_EP_SIZE     64
 #define CDC_DATA_OUT_EP_SIZE    64
 
+#define USB_CDC_SET_LINE_CODING_HANDLER mySetLineCodingHandler
+
+
 //#define USB_CDC_SUPPORT_ABSTRACT_CONTROL_MANAGEMENT_CAPABILITIES_D2 //Send_Break command
-#define USB_CDC_SUPPORT_ABSTRACT_CONTROL_MANAGEMENT_CAPABILITIES_D1 //Set_Line_Coding, Set_Control_Line_State, Get_Line_Coding, and Serial_State commands
+//#define USB_CDC_SUPPORT_ABSTRACT_CONTROL_MANAGEMENT_CAPABILITIES_D1 //Set_Line_Coding, Set_Control_Line_State, Get_Line_Coding, and Serial_State commands
+
+//#define USB_CDC_SUPPORT_DSR_REPORTING   //Signal from UART peripheral device, to CDC/USB host.  Indicates UART peripheral is ready to receive data and/or commands.
+//#define USB_CDC_SUPPORT_DTR_SIGNALING   //Signal sent from the USB/CDC host, down to the UART peripheral device
+//#define USB_CDC_SUPPORT_HARDWARE_FLOW_CONTROL   //Implements RTS/CTS UART flow control.
 
 // HID Function Configuration
 /*
@@ -101,4 +110,3 @@ SUBSTITUTE GOODS, TECHNOLOGY, SERVICES, OR ANY CLAIMS BY THIRD PARTIES
 #define HID_RPT01_SIZE          50
 */
 #endif
-

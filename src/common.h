@@ -41,4 +41,8 @@ void lcd_demo_loop(void);
 // serial.c
 void serial_init(void);
 
+// usb.c
+void usb_init(void);
+void usb_tick(void);
+
 /* end */
