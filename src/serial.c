@@ -39,10 +39,10 @@ static uint8_t rx_received_data_length;
 uint8_t serial_tx_buffer[32];
 uint8_t serial_rx_error_too_much_data = 0;
 static uint8_t* tx_pointer = 0;
+static uint8_t* tx_pointer_start = 0;
 static uint8_t tx_address;
 static uint8_t tx_command;
 static uint8_t tx_length;
-static uint8_t tx_sent_data_length;
 static unsigned char tx_rombuffer_pong[] = "PONG";
 
 // group control id = 1
@@ -306,40 +306,41 @@ bool serial_handle_tx(void) {
     switch (serial_state) {
 
     case state_tx_begin:
-        TX_REG = 'U';
         serial_state = state_tx_address;
         serial_state_since = 0;
+        TX_REG = 'U';
         break;
 
     case state_tx_address:
-        TX_REG = tx_address;
         serial_state = state_tx_command;
         serial_state_since = 0;
+        TX_REG = tx_address;
         break;
 
     case state_tx_command:
-        TX_REG = tx_command;
         serial_state = state_tx_length;
         serial_state_since = 0;
+        TX_REG = tx_command;
         break;
 
     case state_tx_length:
-        TX_REG = tx_length;
         serial_state = state_tx_data;
         serial_state_since = 0;
+        TX_REG = tx_length;
         break;
 
     case state_tx_data:
-        TX_REG = *tx_pointer;
-        tx_pointer++;
-        tx_sent_data_length++;
-        if (tx_sent_data_length >= tx_length) {
+    {
+        char *p = tx_pointer++;
+        if (tx_pointer >= (tx_pointer_start+tx_length)) {
             serial_state = state_tx_finishing;
             serial_state_since = 0;
             // don't disable TXIE here, but do it only after we're done sending
             // (= when we re-enter the ISR)
         }
+        TX_REG = *p;
         break;
+    }
 
     default:
         return false;
@@ -358,14 +359,37 @@ void serial_begin_tx(uint8_t address, uint8_t command, uint8_t length, uint8_t *
     tx_address = address | 0xC0;
     tx_command = command;
     tx_length = length;
-    tx_sent_data_length = 0;
+    tx_pointer_start = buffer;
     tx_pointer = buffer;
 
-    serial_state = state_tx_begin;
-    serial_state_since = 0;
 #ifdef SOFTWARE_ECHO_CONTROL
     BUS_DIRECTION = BUS_DIRECTION_TRANSMIT;
 #endif
+    serial_state = state_tx_begin;
+    serial_state_since = 0;
+#ifdef SIMPLEX_UART
+    TXIE = 1;
+    TXEN = 1;
+#endif
+    serial_handle_tx();
+}
+
+void serial_begin_tx_raw(uint8_t length, uint8_t *buffer) {
+#ifdef SIMPLEX_UART
+    TXIE = 0;
+    RCIE = 0;
+    CREN = 0;
+#endif
+
+    tx_length = length;
+    tx_pointer_start = buffer;
+    tx_pointer = buffer;
+
+#ifdef SOFTWARE_ECHO_CONTROL
+    BUS_DIRECTION = BUS_DIRECTION_TRANSMIT;
+#endif
+    serial_state = state_tx_data;
+    serial_state_since = 0;
 #ifdef SIMPLEX_UART
     TXIE = 1;
     TXEN = 1;
