@@ -2,6 +2,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include "unit.h"
+#include "serial.h"
 #include "../shared/generated.h"
 
 enum STATE {

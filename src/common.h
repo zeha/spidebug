@@ -1,3 +1,6 @@
+#ifndef COMMON_H
+#define COMMON_H
+
 #include <xc.h>
 #include <plib.h>
 #include <stdint.h>
@@ -10,6 +13,7 @@
 
 #undef HAVE_RTCC
 #undef SERIAL_USE_BUS
+#define SERIAL_BUFFER_SIZE 64
 
 // 80MHz
 #define SYS_FREQ 80000000L
@@ -39,14 +43,9 @@ void leds_init(void);
 void lcd_init(void);
 void lcd_demo_loop(void);
 
-// serial.c
-void serial_init(void);
-#define SERIAL_BUFFER_SIZE 64
-extern uint8_t serial_rx_buffer[SERIAL_BUFFER_SIZE];
-extern uint8_t* serial_rx_pointer;
-
 // usb.c
 void usb_init(void);
 void usb_tick(void);
 
-/* end */
+#endif
+

@@ -8,6 +8,7 @@
 #include "common.h"
 #include "unit.h"
 #include <stdbool.h>
+#include "serial.h"
 
 // EEPROM Lib
 #include <peripheral/nvm.h>

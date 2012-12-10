@@ -93,7 +93,7 @@ SUBSTITUTE GOODS, TECHNOLOGY, SERVICES, OR ANY CLAIMS BY THIRD PARTIES
 
 
 //#define USB_CDC_SUPPORT_ABSTRACT_CONTROL_MANAGEMENT_CAPABILITIES_D2 //Send_Break command
-//#define USB_CDC_SUPPORT_ABSTRACT_CONTROL_MANAGEMENT_CAPABILITIES_D1 //Set_Line_Coding, Set_Control_Line_State, Get_Line_Coding, and Serial_State commands
+#define USB_CDC_SUPPORT_ABSTRACT_CONTROL_MANAGEMENT_CAPABILITIES_D1 //Set_Line_Coding, Set_Control_Line_State, Get_Line_Coding, and Serial_State commands
 
 //#define USB_CDC_SUPPORT_DSR_REPORTING   //Signal from UART peripheral device, to CDC/USB host.  Indicates UART peripheral is ready to receive data and/or commands.
 //#define USB_CDC_SUPPORT_DTR_SIGNALING   //Signal sent from the USB/CDC host, down to the UART peripheral device

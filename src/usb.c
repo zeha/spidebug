@@ -3,6 +3,7 @@
 #include "HardwareProfile.h"
 #include "USB/usb.h"
 #include "USB/usb_function_cdc.h"
+#include "serial.h"
 
 // usb_init must init this to 0 for CDC to work
 USB_HANDLE  lastTransmission;
@@ -49,6 +50,16 @@ void usb_tick(void) {
         CDCTxService();
     }
 }
+
+#if defined(USB_CDC_SET_LINE_CODING_HANDLER)
+void mySetLineCodingHandler(void)
+{
+    // just say "Yes, sir!" for now.
+    CDCSetBaudRate(cdc_notice.GetLineCoding.dwDTERate.Val);
+    //U2BRG = ((GetPeripheralClock()+(BRG_DIV2/2*line_coding.dwDTERate.Val))/BRG_DIV2/line_coding.dwDTERate.Val-1);
+    //U2MODEbits.BRGH = BRGH2;
+}
+#endif
 
 BOOL USER_USB_CALLBACK_EVENT_HANDLER(int event, void *pdata, WORD size)
 {
