@@ -9,6 +9,7 @@
 #include "unit.h"
 #include <stdbool.h>
 #include "serial.h"
+#include "ledmatrix.h"
 
 // EEPROM Lib
 #include <peripheral/nvm.h>
@@ -162,6 +163,7 @@ void init(void) {
     unit_init();
     serial_init();
     usb_init();
+    ledmatrix_init();
 
     INTEnableSystemMultiVectoredInt();
 }
@@ -195,6 +197,9 @@ int main(void) {
 
         serial_tick();
         usb_tick();
+#ifndef LEDMATRIX_USE_INTERRUPT
+        ledmatrix_tick();
+#endif
 
         if (i%50000 == 0) {
             led1_set(led);

@@ -26,6 +26,8 @@
       <itemPath>HardwareProfile.h</itemPath>
       <itemPath>usb.c</itemPath>
       <itemPath>usb_descriptors.c</itemPath>
+      <itemPath>ledmatrix.c</itemPath>
+      <itemPath>ledmatrix.h</itemPath>
     </logicalFolder>
     <logicalFolder name="f1" displayName="USB" projectFiles="true">
       <itemPath>USB/usb_device.c</itemPath>
