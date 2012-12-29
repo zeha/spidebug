@@ -1,6 +1,6 @@
 /******************************************************************************
 
-    USB Host Client Driver for Android(tm) Devices
+    USB Host Client Driver for Android(tm) Devices - protocol version 2
 
 The Android Operating System update v2.3.4 includes a module for accessing
 the USB port of the device with an application.  This is done through an
@@ -21,8 +21,8 @@ talk to that interface
 Software License Agreement
 
 The software supplied herewith by Microchip Technology Incorporated
-(the “Company”) for its PICmicro® Microcontroller is intended and
-supplied to you, the Company’s customer, for use solely and
+(the ï¿½Companyï¿½) for its PICmicroï¿½ Microcontroller is intended and
+supplied to you, the Companyï¿½s customer, for use solely and
 exclusively on Microchip PICmicro Microcontroller products. The
 software is owned by the Company and/or its supplier, and is
 protected under applicable copyright laws. All rights are reserved.
@@ -31,7 +31,7 @@ user to criminal sanctions under applicable laws, as well as to
 civil liability for the breach of the terms and conditions of this
 license.
 
-THIS SOFTWARE IS PROVIDED IN AN “AS IS” CONDITION. NO WARRANTIES,
+THIS SOFTWARE IS PROVIDED IN AN ï¿½AS ISï¿½ CONDITION. NO WARRANTIES,
 WHETHER EXPRESS, IMPLIED OR STATUTORY, INCLUDING, BUT NOT LIMITED
 TO, IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A
 PARTICULAR PURPOSE APPLY TO THIS SOFTWARE. THE COMPANY SHALL NOT,
@@ -42,135 +42,182 @@ Change History:
   Rev         Description
   ----------  ----------------------------------------------------------
   2.9         Initial release
+  2.9a        No Change
+  2.9b        Fixed a race condition between receiving the transfer complete
+              of the "enter accessory mode" command and the device detaching
+              from the bus.  If the detach event was passed from the stack before
+              the transfer complete, then the driver would think that the device
+              didn't successfully enter accessory mode resulting in communication
+              failure.
 
 *******************************************************************************/
 
+#include "Compiler.h"
+#include "GenericTypeDefs.h"
+
 #include "USB/usb.h"
 #include "USB/usb_host_android.h"
-#include "usb_host_android_protocol_v1_local.h"
+#include "usb_host_android_local.h"
 
 //************************************************************
 // Internal type definitions
 //************************************************************
+typedef enum _ANDROID_ACCESSORY_STRINGS
+{
+    ANDROID_ACCESSORY_STRING_MANUFACTURER   = 0,
+    ANDROID_ACCESSORY_STRING_MODEL          = 1,
+    ANDROID_ACCESSORY_STRING_DESCRIPTION    = 2,
+    ANDROID_ACCESSORY_STRING_VERSION        = 3,
+    ANDROID_ACCESSORY_STRING_URI            = 4,
+    ANDROID_ACCESSORY_STRING_SERIAL         = 5
+} ANDROID_ACCESSORY_STRINGS;
+
+#define USB_DEV_DESC_VID_OFFSET                         8
+#define USB_DEV_DESC_PID_OFFSET                         10
+
+#define USB_DESC_BLENGTH_OFFSET                         0
+#define USB_DESC_BDESCRIPTORTYPE_OFFSET                 1
+
+#define USB_INTERFACE_DESC_BINTERFACENUMBER_OFFSET      2
+#define USB_INTERFACE_DESC_BALTERNATESETTING_OFFSET     3
+#define USB_INTERFACE_DESC_BINTERFACECLASS_OFFSET       5
+#define USB_INTERFACE_DESC_BINTERFACESUBCLASS_OFFSET    6
+#define USB_INTERFACE_DESC_BINTERFACEPROTOCOL_OFFSET    7
+
+#define USB_CDC_DESC_BDESCRIPTORSUBTYPE_OFFSET          2
+#define USB_CDC_DESC_UNION_BMASTERINTERFACE_OFFSET      3  
+
+#define USB_ENDPOINT_DESC_BENDPOINTADDRESS_OFFSET       2 
+#define USB_ENDPOINT_DESC_BMATTRIBUTES_OFFSET           3 
+#define USB_ENDPOINT_DESC_WMAXPACKETSIZE_OFFSET         4 
+#define USB_ENDPOINT_DESC_BINTERVAL_OFFSET              5
+
+#define ANDROID_ACCESSORY_SEND_STRING               52
+#define ANDROID_ACCESSORY_START                     53
+#define ANDROID_ACCESSORY_REGISTER_HID              54
+#define ANDROID_ACCESSORY_UNREGISTER_HID            55
+#define ANDROID_ACCESSORY_SET_HID_REPORT_DESC       56
+#define ANDROID_ACCESSORY_SEND_HID_EVENT            57
+#define ANDROID_ACCESSORY_SET_AUDIO_MODE            58
 
 typedef enum
 {
-    //NO_DEVICE must = 0 so that the memset in the init function resets
-    //  all of the device instances to NO_DEVICE
+    //NO_DEVICE needs to be 0 so that the memset in the init function
+    //  clears this to the right value
     NO_DEVICE = 0,
     DEVICE_ATTACHED,
-    GET_PROTOCOL_SENT,
-    PROTOCOL_RECEIVED,
+    SEND_MANUFACTUER_STRING,
+    SEND_MODEL_STRING,
+    SEND_DESCRIPTION_STRING,
+    SEND_VERSION_STRING,
+    SEND_URI_STRING,
+    SEND_SERIAL_STRING,
+    SEND_AUDIO_MODE,
+    START_ACCESSORY,
+    ACCESSORY_STARTING,
+    WAITING_FOR_ACCESSORY_RETURN,
+    RETURN_OF_THE_ACCESSORY,
+
+    //States before this point aren't able to use the APIs yet.
+    //States below this point can all use all of the APIs
     READY,
-    NOT_SUPPORTED    
-} ANDROID_DEVICE_STATE;
+    REGISTERING_HID,
+    SENDING_HID_REPORT_DESCRIPTOR,
+    HID_REPORT_DESCRIPTORS_COMPLETE,
+
+} ANDROID_DEVICE_STATUS_PV1;
 
 typedef struct
 {
     BYTE address;
     BYTE clientDriverID;
-    DWORD flags;
-    WORD protocol;
-    void* protocolHandle;
+    BYTE OUTEndpointNum;
+    WORD OUTEndpointSize;
+    BYTE INEndpointNum;
+    WORD INEndpointSize;
+    ANDROID_DEVICE_STATUS_PV1 state;
     WORD countDown;
-    ANDROID_DEVICE_STATE state;
+
+    struct
+    {
+        BYTE TXBusy :1;
+        BYTE RXBusy :1;
+        BYTE EP0TransferPending :1;
+    } status;
+
+    struct
+    {
+        BYTE* data;
+        BYTE  length;
+        BYTE  offset;
+        BYTE  id;
+        BYTE  HIDEventSent      :1;
+    } hid;
+
 } ANDROID_DEVICE_DATA;
-
-typedef BYTE (*ANDROID_APP_WRITE) (void* handle, BYTE* data, DWORD size);
-typedef BOOL (*ANDROID_APP_IS_WRITE_COMPLETE) (void* handle, BYTE* errorCode, DWORD* size);
-typedef BYTE (*ANDROID_APP_READ) (void* handle, BYTE* data, DWORD size);
-typedef BOOL (*ANDROID_APP_IS_READ_COMPLETE) (void* handle, BYTE* errorCode, DWORD* size);
-typedef void* (*ANDROID_APP_INITIALIZE) ( BYTE address, DWORD flags, BYTE clientDriverID );
-typedef void (*ANDROID_APP_TASKS) (void);
-
-typedef struct _ANDROID_PROTOCOL_VERSION
-{
-    BYTE versionNumber;
-
-    ANDROID_APP_WRITE write;
-    ANDROID_APP_IS_WRITE_COMPLETE isWriteComplete;
-
-    ANDROID_APP_READ read;
-    ANDROID_APP_IS_READ_COMPLETE isReadComplete;
-
-    ANDROID_APP_INITIALIZE init;
-    ANDROID_APP_TASKS tasks;
-
-    USB_CLIENT_EVENT_HANDLER handler;
-    USB_CLIENT_EVENT_HANDLER dataHandler;
-} ANDROID_PROTOCOL_VERSION;
-
-//** Command transfer code **
-#define ANDROID_ACCESSORY_GET_PROTOCOL 51
-
-//************************************************************
-// Internal prototypes
-//************************************************************
-BYTE AndroidCommandGetProtocol(ANDROID_DEVICE_DATA* device, WORD *protocol);
 
 //************************************************************
 // Global variables
 //************************************************************
 //accessoryInfo is for use by the Android drivers only and not for users.
-ANDROID_ACCESSORY_INFORMATION *accessoryInfo;
-
-//************************************************************
-// Internal variables
-//************************************************************
+static ANDROID_ACCESSORY_INFORMATION *accessoryInfo;
 static ANDROID_DEVICE_DATA devices[NUM_ANDROID_DEVICES_SUPPORTED];
-static ANDROID_PROTOCOL_VERSION protocolVersions[] = 
-{
-    {
-        1,
-        AndroidAppWrite_Pv1,
-        AndroidAppIsWriteComplete_Pv1,
-        AndroidAppRead_Pv1,
-        AndroidAppIsReadComplete_Pv1,
-        AndroidInitialize_Pv1,
-        AndroidTasks_Pv1,
-        AndroidAppEventHandler_Pv1,
-        AndroidAppDataEventHandler_Pv1
-    }
-};
+
+//************************************************************
+// Internal prototypes
+//************************************************************
+static BYTE AndroidCommandSendString(void *handle, ANDROID_ACCESSORY_STRINGS stringType, const char *string, WORD stringLength);
+static BYTE AndroidCommandStart(void *handle);
+static BOOL AndroidIsLastCommandComplete(BYTE address, BYTE *errorCode, DWORD *byteCount);
+
+//************************************************************
+// Internal macro helper functions
+//************************************************************
+#define ReadWORD(dest,source) {memcpy(dest,source,2);}
+#define ReadDWORD(dest,source) {memcpy(dest,source,4);}
+
+#define ANDROID_GetOUTEndpointSize(handle)  handle->OUTEndpointSize
+#define ANDROID_GetINEndpointSize(handle)   handle->INEndpointSize
+#define ANDROID_GetOUTEndpointNum(handle)   handle->OUTEndpointNum
+#define ANDROID_GetINEndpointNum(handle)    handle->INEndpointNum
 
 
-//DOM-IGNORE-END
-//***************************************************************************
-//  API Interface to user
-//***************************************************************************
+/********************************************************************/
+/********************************************************************/
+/********************************************************************/
+/**     Interface Functions                                        **/
+/********************************************************************/
+/********************************************************************/
+/********************************************************************/
 
 
 /****************************************************************************
   Function:
-    void AndroidAppStart(ANDROID_ACCESSORY_INFORMATION *info)
+    void AndroidAppStart(void)
 
   Summary:
-    Sets the accessory information and initializes the client driver information
-    after the initial power cycles.
+    Initializes the Android protocol version 1 sub-driver
 
   Description:
-    Sets the accessory information and initializes the client driver information
-    after the initial power cycles.  Since this resets all device information
-    this function should be used only after a compete system reset.  This should 
-    not be called while the USB is active or while connected to a device.
+    Initializes the Android protocol version 1 sub-driver    
 
   Precondition:
-    USB module should not be in operation
+    None
 
   Parameters:
-    ANDROID_ACCESSORY_INFORMATION *info  - the information about the Android accessory
+    None
 
   Return Values:
     None
 
   Remarks:
-    None
+    Should never be called after the system initialization.  This will kill
+    any currently attached device information.
   ***************************************************************************/
-void AndroidAppStart(ANDROID_ACCESSORY_INFORMATION *info)
+void AndroidAppStart(ANDROID_ACCESSORY_INFORMATION* info)
 {
     accessoryInfo = info;
     memset(&devices,0x00,sizeof(devices));
-    AndroidAppStart_Pv1();
 }
 
 
@@ -179,19 +226,18 @@ void AndroidAppStart(ANDROID_ACCESSORY_INFORMATION *info)
     BYTE AndroidAppWrite(void* handle, BYTE* data, DWORD size)
 
   Summary:
-    Sends data to the Android device specified by the passed in handle.
+    Writes data out to the Android device
 
   Description:
-    Sends data to the Android device specified by the passed in handle.
+    Writes data out to the Android device
 
   Precondition:
-    Transfer is not already in progress.  USB module is initialized and Android
-    device has attached.
+    Protocol version 1 sub-driver initialized through AndroidAppStart()
 
   Parameters:
-    void* handle - the handle passed to the device in the EVENT_ANDROID_ATTACH event
-    BYTE* data - the data to send to the Android device
-    DWORD size - the size of the data that needs to be sent
+    void* handle - handle to the device that should receive the data
+    BYTE* data - the data to send
+    DWORD size - the amount of data to send
 
   Return Values:
     USB_SUCCESS                     - Write started successfully.
@@ -212,16 +258,44 @@ void AndroidAppStart(ANDROID_ACCESSORY_INFORMATION *info)
   ***************************************************************************/
 BYTE AndroidAppWrite(void* handle, BYTE* data, DWORD size)
 {
-    BYTE i;
+    BYTE errorCode;
+    ANDROID_DEVICE_DATA* device = (ANDROID_DEVICE_DATA*)handle;
 
-    for(i=0;i<NUM_ANDROID_DEVICES_SUPPORTED;i++)
+    if(device == NULL)
     {
-        if(handle == devices[i].protocolHandle) {
-            return protocolVersions[devices[i].protocol - 1].write(handle,data,size);
-        }
+        return USB_UNKNOWN_DEVICE;
     }
 
-    return USB_UNKNOWN_DEVICE;
+    if(device->address == 0)
+    {
+        return USB_UNKNOWN_DEVICE;
+    }
+
+    if(device->state < READY)
+    {
+        return USB_INVALID_STATE;
+    }    
+
+    if(device->status.TXBusy == 1)
+    {
+        return USB_ENDPOINT_BUSY;
+    }
+
+    errorCode = USBHostWrite( device->address, ANDROID_GetOUTEndpointNum(device),
+                                            data, size );
+    
+    switch(errorCode)
+    {
+        case USB_ENDPOINT_BUSY:
+        case USB_SUCCESS:
+            device->status.TXBusy = 1;
+            break;
+        default:
+            device->status.TXBusy = 0;
+            break;
+    }
+
+    return errorCode;
 }
 
 /****************************************************************************
@@ -265,18 +339,37 @@ BYTE AndroidAppWrite(void* handle, BYTE* data, DWORD size)
   ***************************************************************************/
 BOOL AndroidAppIsWriteComplete(void* handle, BYTE* errorCode, DWORD* size)
 {
-    BYTE i;
+    ANDROID_DEVICE_DATA* device = (ANDROID_DEVICE_DATA*)handle;
 
-    for(i=0;i<NUM_ANDROID_DEVICES_SUPPORTED;i++)
+    if(device == NULL)
     {
-        if(handle == devices[i].protocolHandle) {
-            return protocolVersions[devices[i].protocol - 1].isWriteComplete(handle,errorCode,size);
-        }
+        return USB_UNKNOWN_DEVICE;
     }
 
-    *errorCode = USB_UNKNOWN_DEVICE;
-    *size = 0;
-    return TRUE;
+    if(device->address == 0)
+    {
+        return USB_UNKNOWN_DEVICE;
+    }
+
+    if(device->state < READY)
+    {
+        return USB_INVALID_STATE;
+    }    
+
+    //If there was a transfer pending, then get the state of the transfer
+    if(USBHostTransferIsComplete(
+                                    device->address, 
+                                    ANDROID_GetOUTEndpointNum(device),
+                                    errorCode,
+                                    size
+                                ) == TRUE)
+    {
+        device->status.TXBusy = 0;
+        return TRUE;
+    }
+
+    //Then the transfer was not complete.
+    return FALSE;
 }
 
 /****************************************************************************
@@ -319,17 +412,52 @@ BOOL AndroidAppIsWriteComplete(void* handle, BYTE* errorCode, DWORD* size)
   ***************************************************************************/
 BYTE AndroidAppRead(void* handle, BYTE* data, DWORD size)
 {
-    BYTE i;
+    ANDROID_DEVICE_DATA* device = (ANDROID_DEVICE_DATA*) handle;
 
-    for(i=0;i<NUM_ANDROID_DEVICES_SUPPORTED;i++)
+    BYTE errorCode;
+
+    if(device == NULL)
     {
-        if(handle == devices[i].protocolHandle) {
-            return protocolVersions[devices[i].protocol - 1].read(handle,data,size);
-        }
+        return USB_UNKNOWN_DEVICE;
     }
 
-    return USB_UNKNOWN_DEVICE;
+    if(device->address == 0)
+    {
+        return USB_UNKNOWN_DEVICE;
+    }
+
+    if(device->state < READY)
+    {
+        return USB_INVALID_STATE;
+    }    
+
+    if(device->status.RXBusy == 1)
+    {
+        return USB_ENDPOINT_BUSY;
+    }
+
+    if(size < device->INEndpointSize)
+    {
+        return USB_ERROR_BUFFER_TOO_SMALL;
+    }
+
+    errorCode = USBHostRead( device->address, ANDROID_GetINEndpointNum(device),
+                                            data, ((size / device->INEndpointSize) * device->INEndpointSize) );
+    
+    switch(errorCode)
+    {
+        case USB_SUCCESS:
+        case USB_ENDPOINT_BUSY:
+            device->status.RXBusy = 1;
+            break;
+        default:
+            device->status.RXBusy = 0;
+            break;
+    }
+
+    return errorCode;
 }
+
 
 /****************************************************************************
   Function:
@@ -372,19 +500,39 @@ BYTE AndroidAppRead(void* handle, BYTE* data, DWORD size)
   ***************************************************************************/
 BOOL AndroidAppIsReadComplete(void* handle, BYTE* errorCode, DWORD* size)
 {
-    BYTE i;
+    ANDROID_DEVICE_DATA* device = (ANDROID_DEVICE_DATA*)handle;
 
-    for(i=0;i<NUM_ANDROID_DEVICES_SUPPORTED;i++)
+    if(device == NULL)
     {
-        if(handle == devices[i].protocolHandle) {
-            return protocolVersions[devices[i].protocol - 1].isReadComplete(handle,errorCode,size);
-        }
+        return USB_UNKNOWN_DEVICE;
     }
 
-    *errorCode = USB_UNKNOWN_DEVICE;
-    *size = 0;
-    return TRUE;
+    if(device->address == 0)
+    {
+        return USB_UNKNOWN_DEVICE;
+    }
+
+    if(device->state < READY)
+    {
+        return USB_INVALID_STATE;
+    }    
+
+    //If there was a transfer pending, then get the state of the transfer
+    if(USBHostTransferIsComplete(
+                                    device->address, 
+                                    ANDROID_GetINEndpointNum(device),
+                                    errorCode,
+                                    size
+                                ) == TRUE)
+    {
+        device->status.RXBusy = 0;
+        return TRUE;
+    }
+
+    //Then the transfer was not complete.
+    return FALSE;
 }
+
 
 /****************************************************************************
   Function:
@@ -413,151 +561,293 @@ BOOL AndroidAppIsReadComplete(void* handle, BYTE* errorCode, DWORD* size)
 void AndroidTasks(void)
 {
     BYTE i;
+    ANDROID_DEVICE_DATA* device;
+    BYTE errorCode;
+    DWORD byteCount;
 
+    //See if any of the devices need to do something
     for(i=0;i<NUM_ANDROID_DEVICES_SUPPORTED;i++)
     {
-        switch(devices[i].state)
+        device = &devices[i];
+
+        switch(device->state)
         {
             case DEVICE_ATTACHED:
+                //Fall through
+            case SEND_MANUFACTUER_STRING:
+                if(accessoryInfo->manufacturer == NULL)
                 {
-                    BYTE errorCode;
+                    device->state = SEND_MODEL_STRING;
+                    break;
+                }
 
-                    errorCode = AndroidCommandGetProtocol(&devices[i],(WORD*)&devices[i].protocol);
+                //Check to see if something else is going on with EP0
+                //MCHP: should switch this to use the transfer events instead.  It is safer.
+                if(AndroidIsLastCommandComplete(device->address, &errorCode, &byteCount) == TRUE)
+                {
+                    //If not, then let's send the manufacturer's string
+                    AndroidCommandSendString(device, ANDROID_ACCESSORY_STRING_MANUFACTURER, accessoryInfo->manufacturer, accessoryInfo->manufacturer_size);
 
-                    if(errorCode == USB_SUCCESS)
+                    device->status.EP0TransferPending = 1;
+                    device->state = SEND_MODEL_STRING;
+                }
+                break;
+
+            case SEND_MODEL_STRING:
+                if(accessoryInfo->model == NULL)
+                {
+                    device->state = SEND_DESCRIPTION_STRING;
+                    break;
+                }
+
+                if(device->status.EP0TransferPending == 0)
+                {
+                    //The manufacturing string is sent.  Now try to send the model string
+                    //MCHP: should switch this to use the transfer events instead.  It is safer.
+                    if(AndroidIsLastCommandComplete(device->address, &errorCode, &byteCount) == TRUE)
                     {
-                        devices[i].state = GET_PROTOCOL_SENT;
+                        //If not, then let's send the manufacturer's string
+                        AndroidCommandSendString(device, ANDROID_ACCESSORY_STRING_MODEL, accessoryInfo->model, accessoryInfo->model_size);
+    
+                        device->status.EP0TransferPending = 1;
+                        device->state = SEND_DESCRIPTION_STRING;
                     }
+                }
+                break;
+
+            case SEND_DESCRIPTION_STRING:
+                if(accessoryInfo->description == NULL)
+                {
+                    device->state = SEND_VERSION_STRING;
+                    break;
+                }
+
+                if(device->status.EP0TransferPending == 0)
+                {
+                    //The manufacturing string is sent.  Now try to send the model string
+                    //MCHP: should switch this to use the transfer events instead.  It is safer.
+                    if(AndroidIsLastCommandComplete(device->address, &errorCode, &byteCount) == TRUE)
+                    {
+                        //If not, then let's send the manufacturer's string
+                        AndroidCommandSendString(device, ANDROID_ACCESSORY_STRING_DESCRIPTION, accessoryInfo->description, accessoryInfo->description_size);
+    
+                        device->status.EP0TransferPending = 1;
+                        device->state = SEND_VERSION_STRING;
+                    }
+                }
+                break;
+
+            case SEND_VERSION_STRING:
+                if(accessoryInfo->version == NULL)
+                {
+                    device->state = SEND_URI_STRING;
+                    break;
+                }
+
+                if(device->status.EP0TransferPending == 0)
+                {
+                    //The manufacturing string is sent.  Now try to send the model string
+                    //MCHP: should switch this to use the transfer events instead.  It is safer.
+                    if(AndroidIsLastCommandComplete(device->address, &errorCode, &byteCount) == TRUE)
+                    {
+                        //If not, then let's send the manufacturer's string
+                        AndroidCommandSendString(device, ANDROID_ACCESSORY_STRING_VERSION, accessoryInfo->version, accessoryInfo->version_size);
+    
+                        device->status.EP0TransferPending = 1;
+                        device->state = SEND_URI_STRING;
+                    }
+                }
+                break;
+
+            case SEND_URI_STRING:
+                if(accessoryInfo->URI == NULL)
+                {
+                    device->state = SEND_SERIAL_STRING;
+                    break;
+                }
+
+                if(device->status.EP0TransferPending == 0)
+                {
+                    //The manufacturing string is sent.  Now try to send the model string
+                    //MCHP: should switch this to use the transfer events instead.  It is safer.
+                    if(AndroidIsLastCommandComplete(device->address, &errorCode, &byteCount) == TRUE)
+                    {
+                        //If not, then let's send the manufacturer's string
+                        AndroidCommandSendString(device, ANDROID_ACCESSORY_STRING_URI, accessoryInfo->URI, accessoryInfo->URI_size);
+    
+                        device->status.EP0TransferPending = 1;
+                        device->state = SEND_SERIAL_STRING;
+                    }
+                }
+                break;
+
+            case SEND_SERIAL_STRING:
+                if(accessoryInfo->serial == NULL)
+                {
+                    device->state = SEND_AUDIO_MODE;
+                    break;
+                }
+
+                if(device->status.EP0TransferPending == 0)
+                {
+                    //The manufacturing string is sent.  Now try to send the model string
+                    //MCHP: should switch this to use the transfer events instead.  It is safer.
+                    if(AndroidIsLastCommandComplete(device->address, &errorCode, &byteCount) == TRUE)
+                    {
+                        //If not, then let's send the manufacturer's string
+                        AndroidCommandSendString(device, ANDROID_ACCESSORY_STRING_SERIAL, accessoryInfo->serial, accessoryInfo->serial_size);
+    
+                        device->status.EP0TransferPending = 1;
+                        device->state = SEND_AUDIO_MODE;
+                    }
+                }
+                break;
+
+            case SEND_AUDIO_MODE:
+                if(accessoryInfo->audio_mode == ANDROID_AUDIO_MODE__NONE)
+                {
+                    device->state = START_ACCESSORY;
+                    break;
+                }
+
+                if(device->status.EP0TransferPending == 0)
+                {
+                    //MCHP: should switch this to use the transfer events instead.  It is safer.
+                    if(AndroidIsLastCommandComplete(device->address, &errorCode, &byteCount) == TRUE)
+                    {
+                        //Set the audio mode
+                        USBHostIssueDeviceRequest(  device->address,                    //BYTE deviceAddress, 
+                                                    USB_SETUP_HOST_TO_DEVICE            //BYTE bmRequestType,
+                                                        | USB_SETUP_TYPE_VENDOR 
+                                                        | USB_SETUP_RECIPIENT_DEVICE,       
+                                                    ANDROID_ACCESSORY_SET_AUDIO_MODE,   //BYTE bRequest,
+                                                    accessoryInfo->audio_mode,          //WORD wValue,
+                                                    0,                                  //WORD wIndex, 
+                                                    0,                                  //WORD wLength, 
+                                                    NULL,                               //BYTE *data, 
+                                                    USB_DEVICE_REQUEST_SET,             //BYTE dataDirection,
+                                                    device->clientDriverID              //BYTE clientDriverID 
+                                                 );
+    
+                        device->status.EP0TransferPending = 1;
+                        device->state = START_ACCESSORY;
+                    }
+                }
+                break;
+
+            case START_ACCESSORY:
+                if(device->status.EP0TransferPending == 0)
+                {
+                    //The manufacturing string is sent.  Now try to send the model string
+                    //MCHP: should switch this to use the transfer events instead.  It is safer.
+                    if(AndroidIsLastCommandComplete(device->address, &errorCode, &byteCount) == TRUE)
+                    {
+                        //Set up a timer to remove the device if it hasn't returned to us as an
+                        //  accessory mode device in a specified time, we kill the device
+                        device->countDown = ANDROID_DEVICE_ATTACH_TIMEOUT;
+
+                        //If not, then let's send the manufacturer's string
+                        AndroidCommandStart(device);
+    
+                        device->status.EP0TransferPending = 1;
+                        device->state = ACCESSORY_STARTING;
+                    }
+                }
+                break;
+
+            case ACCESSORY_STARTING:
+                if(device->status.EP0TransferPending == 0)
+                {
+                    device->state = WAITING_FOR_ACCESSORY_RETURN;
                 }   
                 break;
 
-            case GET_PROTOCOL_SENT:
-                //Nothing to do here.  The event transfer will progress our state.
+            case WAITING_FOR_ACCESSORY_RETURN:
                 break;
 
-            //Nothing to do in these states
-            case NO_DEVICE:
-                //Fall through
+            case RETURN_OF_THE_ACCESSORY:
+                //The accessory has returned and has been initialialized.  It is now ready to use.
+                device->state = READY;
+                USB_HOST_APP_EVENT_HANDLER(device->address,EVENT_ANDROID_ATTACH,device,sizeof(ANDROID_DEVICE_DATA*));
+                break; 
+             
             case READY:
                 break;
 
+            case REGISTERING_HID:
+                if(device->status.EP0TransferPending == 0)
+                {
+                    //MCHP: should switch this to use the transfer events instead.  It is safer.
+                    if(AndroidIsLastCommandComplete(device->address, &errorCode, &byteCount) == TRUE)
+                    {
+                        //Set the audio mode
+                        USBHostIssueDeviceRequest(  device->address,                    //BYTE deviceAddress,
+                                                    USB_SETUP_HOST_TO_DEVICE            //BYTE bmRequestType,
+                                                        | USB_SETUP_TYPE_VENDOR
+                                                        | USB_SETUP_RECIPIENT_DEVICE,
+                                                    ANDROID_ACCESSORY_REGISTER_HID,   //BYTE bRequest,
+                                                    device->hid.id,                                  //WORD wValue,
+                                                    device->hid.length,                                //WORD wIndex,
+                                                    0,                                  //WORD wLength,
+                                                    NULL,                               //BYTE *data,
+                                                    USB_DEVICE_REQUEST_SET,             //BYTE dataDirection,
+                                                    device->clientDriverID              //BYTE clientDriverID
+                                                 );
+            
+                        device->status.EP0TransferPending = 1;
+            
+                        device->state = SENDING_HID_REPORT_DESCRIPTOR;
+                    }
+                }
+                break;
+
+            case SENDING_HID_REPORT_DESCRIPTOR:
+                if(device->status.EP0TransferPending == 0)
+                {
+                    //MCHP: should switch this to use the transfer events instead.  It is safer.
+                    if(AndroidIsLastCommandComplete(device->address, &errorCode, &byteCount) == TRUE)
+                    {
+                        //Set the audio mode
+                        USBHostIssueDeviceRequest(  device->address,                    //BYTE deviceAddress, 
+                                                    USB_SETUP_HOST_TO_DEVICE            //BYTE bmRequestType,
+                                                        | USB_SETUP_TYPE_VENDOR 
+                                                        | USB_SETUP_RECIPIENT_DEVICE,       
+                                                    ANDROID_ACCESSORY_SET_HID_REPORT_DESC,   //BYTE bRequest,
+                                                    device->hid.id,              //WORD wValue,
+                                                    device->hid.offset,           //WORD wIndex, 
+                                                    device->hid.length,          //WORD wLength, 
+                                                    device->hid.data,      //BYTE *data,
+                                                    USB_DEVICE_REQUEST_SET,             //BYTE dataDirection,
+                                                    device->clientDriverID              //BYTE clientDriverID 
+                                                 );
+    
+                        device->status.EP0TransferPending = 1;
+
+                        //MCHP: should only make this move if we are completely done...
+                        //MCHP: maybe should clear up the HID info?
+                        device->state = HID_REPORT_DESCRIPTORS_COMPLETE;
+                    }
+                }
+                break;
+            case HID_REPORT_DESCRIPTORS_COMPLETE:
+                if(device->status.EP0TransferPending == 0)
+                {
+                    USB_HOST_APP_EVENT_HANDLER(devices[i].address,EVENT_ANDROID_HID_REGISTRATION_COMPLETE,&devices[i],sizeof(ANDROID_DEVICE_DATA*));
+                    device->state = READY;
+                }
+                break;
+
             default:
-                //Unknown state, reset it
-                devices[i].state = NO_DEVICE;
+                //Don't know what state the device is in.  Do some recovery here?
                 break;
         }
     }
-
-    for(i=0;i<(sizeof(protocolVersions)/sizeof(ANDROID_PROTOCOL_VERSION));i++)
-    {
-        protocolVersions[i].tasks();
-    }
 }
-
-//DOM-IGNORE-BEGIN
-//***************************************************************************
-//***************************************************************************
-//***************************************************************************
-//  API Interface to sub-protocol drivers
-//***************************************************************************
-//***************************************************************************
-//***************************************************************************
 
 
 /****************************************************************************
   Function:
-    BYTE AndroidCommandGetProtocol(ANDROID_DEVICE_DATA* device, WORD *protocol)
-
-  Summary:
-    Requests the protocol version from the specified Android device.
-
-  Description:
-    Requests the protocol version from the specified Android device.    
-
-  Precondition:
-    None
-
-  Parameters:
-    ANDROID_DEVICE_DATA* device - pointer to the Android device to query
-    WORD *protocol - pointer to where to store the resulting protocol version
-
-  Return Values:
-    USB_SUCCESS                 - Request processing started
-    USB_UNKNOWN_DEVICE          - Device not found
-    USB_INVALID_STATE           - The host must be in a normal running state
-                                    to do this request
-    USB_ENDPOINT_BUSY           - A read or write is already in progress
-    USB_ILLEGAL_REQUEST         - SET CONFIGURATION cannot be performed with
-                                    this function.
-
-  Remarks:
-    Internal API only.  Should not be called by a user.
-  ***************************************************************************/
-BYTE AndroidCommandGetProtocol(ANDROID_DEVICE_DATA* device, WORD *protocol)
-{
-    return USBHostIssueDeviceRequest (  device->address,                    //BYTE deviceAddress, 
-                                        USB_SETUP_DEVICE_TO_HOST            //BYTE bmRequestType,
-                                            | USB_SETUP_TYPE_VENDOR 
-                                            | USB_SETUP_RECIPIENT_DEVICE,       
-                                        ANDROID_ACCESSORY_GET_PROTOCOL,     //BYTE bRequest,
-                                        0,                                  //WORD wValue, 
-                                        0,                                  //WORD wIndex, 
-                                        2,                                  //WORD wLength, 
-                                        (BYTE*)protocol,                    //BYTE *data, 
-                                        USB_DEVICE_REQUEST_GET,             //BYTE dataDirection,
-                                        device->clientDriverID              //BYTE clientDriverID 
-                                      );
-}
-
-/****************************************************************************
-  Function:
-    BOOL AndroidIsLastCommandComplete(BYTE address, BYTE *errorCode, DWORD *byteCount)
-
-  Summary:
-    Checks to see if the last command request is complete.
-
-  Description:
-    Checks to see if the last command request is complete.
-
-  Precondition:
-    AndroidAppStart() function has been called before the first calling of this function
-
-  Parameters:
-    BYTE address - the address of the device that issued the command
-    BYTE* errorCode - pointer to the location where the error code should be stored
-    DWORD* byteCount - pointer to the location where the size of the resulting transfer should be written.
-
-  Return Values:
-    TRUE - command is complete
-    FALSE - command is still in progress
-
-  Remarks:
-    This function is implemented for polled transfer implementations but should
-    be deprecated once polled transfer requests are removed.
-
-    Internal API only.  Should not be called by a user.
-  ***************************************************************************/
-BOOL AndroidIsLastCommandComplete(BYTE address, BYTE *errorCode, DWORD *byteCount)
-{
-    return USBHostTransferIsComplete(   address,        //BYTE deviceAddress, 
-                                        0,                      //BYTE endpoint, 
-                                        errorCode,              //BYTE *errorCode,
-                                        byteCount               //DWORD *byteCount 
-                                    );
-}
-
-
-//***************************************************************************
-//***************************************************************************
-//***************************************************************************
-//  API Interface to USB stack
-//***************************************************************************
-//***************************************************************************
-//***************************************************************************
-
-/****************************************************************************
-  Function:
-    BOOL AndroidAppInitialize( BYTE address, DWORD flags, BYTE clientDriverID )
+    void* AndroidAppInitialize ( BYTE address, DWORD flags, BYTE clientDriverID )
 
   Summary:
     Per instance client driver for Android device.  Called by USB host stack from
@@ -583,55 +873,153 @@ BOOL AndroidIsLastCommandComplete(BYTE address, BYTE *errorCode, DWORD *byteCoun
     This is a internal API only.  This should not be called by anything other
     than the USB host stack via the client driver table
   ***************************************************************************/
-BOOL AndroidAppInitialize( BYTE address, DWORD flags, BYTE clientDriverID )
+BOOL AndroidAppInitialize ( BYTE address, DWORD flags, BYTE clientDriverID )
 {
+    BYTE   *config_descriptor         = NULL;
+    BYTE *device_descriptor = NULL;
+    WORD tempWord;
+    BYTE *config_desc_end;
+
+    ANDROID_DEVICE_DATA* device = NULL;
     BYTE i;
 
-    //See if the device is already in the device list
-    for(i=0;i<NUM_ANDROID_DEVICES_SUPPORTED;i++)
+    device_descriptor = USBHostGetDeviceDescriptor(address);
+
+    ReadWORD(&tempWord, &device_descriptor[USB_DEV_DESC_VID_OFFSET]);
+
+    if(tempWord == 0x18D1)
     {
-        if(devices[i].state != NO_DEVICE)
+        ReadWORD(&tempWord, &device_descriptor[USB_DEV_DESC_PID_OFFSET]);
+        switch(tempWord)
         {
-            if(devices[i].protocol == 1)
+            case 0x2D00:
+            case 0x2D01:
+            case 0x2D02:
+            case 0x2D03:
+            case 0x2D04:
+            case 0x2D05:
+                for(i=0;i<NUM_ANDROID_DEVICES_SUPPORTED;i++)
+                {
+                    if(devices[i].state == WAITING_FOR_ACCESSORY_RETURN)
+                    {
+                        device = &devices[i];
+                        device->state = RETURN_OF_THE_ACCESSORY;
+                        break;
+                    }
+                }
+                break;
+        }
+    }
+    else
+    {
+        flags = flags & ~ANDROID_INIT_FLAG_BYPASS_PROTOCOL;
+    }
+
+    //if this isn't an old accessory, then it must be a new one
+    if(device == NULL)
+    {
+        //Find the first available device.
+        for(i=0;i<NUM_ANDROID_DEVICES_SUPPORTED;i++)
+        {
+            if(devices[i].state == NO_DEVICE)
             {
-                devices[i].countDown = 0;
-                devices[i].protocolHandle = protocolVersions[0].init(devices[i].address, devices[i].flags, devices[i].clientDriverID);
-                return TRUE;
+                device = &devices[i];
+                if( (flags & ANDROID_INIT_FLAG_BYPASS_PROTOCOL) == ANDROID_INIT_FLAG_BYPASS_PROTOCOL)
+                {
+                    device->state = RETURN_OF_THE_ACCESSORY;
+                }
+                else
+                {
+                    device->state = DEVICE_ATTACHED;
+                }
+                break;
             }
-            return FALSE;
         }
     }
 
-    //Find an empty location for this new device
-    for(i=0;i<NUM_ANDROID_DEVICES_SUPPORTED;i++)
+    if(device == NULL)
     {
-        if(devices[i].state == NO_DEVICE)
-        {
-            if( (flags & ANDROID_INIT_FLAG_BYPASS_PROTOCOL) == ANDROID_INIT_FLAG_BYPASS_PROTOCOL)
-            {
-                devices[i].protocol = 1;
-                devices[i].countDown = 0;
-                devices[i].flags = flags;
-                devices[i].state = READY;
-                devices[i].clientDriverID = clientDriverID;
-                devices[i].address = address;
-                devices[i].protocolHandle = protocolVersions[0].init(devices[i].address, devices[i].flags, devices[i].clientDriverID);
-            }
-            else
-            {
-                devices[i].state = DEVICE_ATTACHED;
-                devices[i].address = address;
-                devices[i].flags = flags;
-                devices[i].clientDriverID = clientDriverID;
-            }
+        return TRUE;
+    }
 
-            return TRUE;
+    config_descriptor = USBHostGetCurrentConfigurationDescriptor( address );
+
+    //Save the total length for this configuration descriptor
+    ReadWORD(&tempWord,&config_descriptor[2]);
+
+    //Record the end of the descriptor so we know when to stop searching through
+    //  the descriptor list
+    config_desc_end = config_descriptor + tempWord;
+
+    //Skip past the configuration part of this descriptor to the next 
+    //  descriptor in the configuration descriptor list.  The size of the config
+    //  part of the descriptor is the first byte of the list.
+    config_descriptor += *config_descriptor;
+
+    //Search the entire configuration descriptor for COMM interfaces
+    while(config_descriptor < config_desc_end)
+    {
+        //We are expecting a interface descriptor
+        if(config_descriptor[USB_DESC_BDESCRIPTORTYPE_OFFSET] != USB_DESCRIPTOR_INTERFACE)
+        {
+            //Jump past this descriptor by adding the current descriptor length
+            //  to the current descriptor pointer.
+            config_descriptor += config_descriptor[USB_DESC_BLENGTH_OFFSET];
+
+            //Jump back to the top of the while loop to continue searching through
+            //  this configuration for the next interface
+            continue;
+        }
+
+        device->address = address;
+        device->clientDriverID = clientDriverID;
+
+        if( (config_descriptor[USB_INTERFACE_DESC_BINTERFACECLASS_OFFSET] == 0xFF) &&
+            (config_descriptor[USB_INTERFACE_DESC_BINTERFACESUBCLASS_OFFSET] == 0xFF))
+        {
+            //Jump past this descriptor to the next descriptor.
+            config_descriptor += config_descriptor[USB_DESC_BLENGTH_OFFSET];
+
+            //Parse through the rest of this interface.  Stop when we reach the
+            //  next interface or the end of the configuration descriptor
+            while((config_descriptor[USB_DESC_BDESCRIPTORTYPE_OFFSET] != USB_DESCRIPTOR_INTERFACE) && (config_descriptor < config_desc_end))
+            {
+                if(config_descriptor[USB_DESC_BDESCRIPTORTYPE_OFFSET] == USB_DESCRIPTOR_ENDPOINT)
+                {
+                    //If this is an endpoint descriptor in the DATA interface, then
+                    //  copy all of the endpoint data to the device information.
+
+                    if((config_descriptor[USB_ENDPOINT_DESC_BENDPOINTADDRESS_OFFSET] & 0x80) == 0x80)
+                    {
+                        //If this is an IN endpoint, record the endpoint number
+                        device->INEndpointNum = config_descriptor[USB_ENDPOINT_DESC_BENDPOINTADDRESS_OFFSET]; 
+
+                        //record the endpoint size (2 bytes)
+                        device->INEndpointSize = (config_descriptor[USB_ENDPOINT_DESC_WMAXPACKETSIZE_OFFSET]) + (config_descriptor[USB_ENDPOINT_DESC_WMAXPACKETSIZE_OFFSET+1] << 8);
+                    }
+                    else
+                    {
+                        //Otherwise this is an OUT endpoint, record the endpoint number
+                        device->OUTEndpointNum = config_descriptor[USB_ENDPOINT_DESC_BENDPOINTADDRESS_OFFSET]; 
+
+                        //record the endpoint size (2 bytes)
+                        device->OUTEndpointSize = (config_descriptor[USB_ENDPOINT_DESC_WMAXPACKETSIZE_OFFSET]) + (config_descriptor[USB_ENDPOINT_DESC_WMAXPACKETSIZE_OFFSET+1] << 8);
+                    }
+                }
+                config_descriptor += config_descriptor[USB_DESC_BLENGTH_OFFSET];
+            }
+        }
+        else
+        {
+            //Jump past this descriptor by adding the current descriptor length
+            //  to the current descriptor pointer.
+            config_descriptor += config_descriptor[USB_DESC_BLENGTH_OFFSET];
         }
     }
 
-    //No slot available, can't handle this device
-    return FALSE;
+    return TRUE;
 }
+
 
 /****************************************************************************
   Function:
@@ -663,39 +1051,33 @@ BOOL AndroidAppInitialize( BYTE address, DWORD flags, BYTE clientDriverID )
 BOOL AndroidAppDataEventHandler( BYTE address, USB_EVENT event, void *data, DWORD size )
 {
     BYTE i;
-    BYTE j;
 
     switch (event)
     {
         case EVENT_SOF:              // Start of frame - NOT NEEDED
             return TRUE;
-        case EVENT_1MS:
+        case EVENT_1MS:              // 1ms timer
             for(i=0;i<NUM_ANDROID_DEVICES_SUPPORTED;i++)
             {
-                switch(devices[i].countDown)
+                if(devices[i].state == WAITING_FOR_ACCESSORY_RETURN)
                 {
-                    case 0:
-                        //do nothing
-                        break;
-                    case 1:
-                        //Device has timed out.  Destroy its info.
-                        memset(&devices[i],0x00,sizeof(ANDROID_DEVICE_DATA));
-                        break;
-                    default:
-                        //for every other number, decrement the count
-                        devices[i].countDown--;
-                        break;
-                }
-
-                for(j=0; j<sizeof(protocolVersions)/sizeof(ANDROID_PROTOCOL_VERSION); j++)
-                {
-                    if(protocolVersions[j].versionNumber == devices[i].protocol)
+                    switch(devices[i].countDown)
                     {
-                        protocolVersions[j].dataHandler(address, event, data, size);
-                        break;
+                        case 0:
+                            //do nothing
+                            break;
+                        case 1:
+                            USB_HOST_APP_EVENT_HANDLER(devices[i].address,EVENT_ANDROID_DETACH,&devices[i],sizeof(ANDROID_DEVICE_DATA*));
+
+                            //Device has timed out.  Destroy its info.
+                            memset(&devices[i],0x00,sizeof(ANDROID_DEVICE_DATA));
+                            break;
+                        default:
+                            //for every other number, decrement the count
+                            devices[i].countDown--;
+                            break;
                     }
                 }
-
             }
             return TRUE;
         default:
@@ -734,108 +1116,319 @@ BOOL AndroidAppDataEventHandler( BYTE address, USB_EVENT event, void *data, DWOR
 BOOL AndroidAppEventHandler( BYTE address, USB_EVENT event, void *data, DWORD size )
 {
     HOST_TRANSFER_DATA* transfer_data = data ;
-    BYTE i,j;
-
-    //Throw the message to the protocol handlers if they match the address
-    //  and are ready.
-    for(i=0;i<NUM_ANDROID_DEVICES_SUPPORTED;i++)
-    {
-        if((devices[i].state == READY) && (devices[i].address == address))
-        {
-            for(j=0;j<(sizeof(protocolVersions)/sizeof(ANDROID_PROTOCOL_VERSION));j++)
-            {
-                if(devices[i].protocol == protocolVersions[j].versionNumber)
-                {
-                    protocolVersions[j].handler(address, event, data, size);
-
-                    //Force exit both for loops
-                    i=NUM_ANDROID_DEVICES_SUPPORTED;
-                    break;
-                }
-            }
-        }
-    }
+    ANDROID_DEVICE_DATA *device = NULL;
+    BYTE i;
 
     switch (event)
     {
+        case EVENT_NONE:             // No event occured (NULL event)
+            return TRUE;
+
         case EVENT_DETACH:           // USB cable has been detached (data: BYTE, address of device)
             for(i=0;i<NUM_ANDROID_DEVICES_SUPPORTED;i++)
             {
                 if(devices[i].address == address)
                 {
-                    if(devices[i].state == READY)
+                    if(devices[i].state == ACCESSORY_STARTING) 
                     {
-                        switch(devices[i].protocol)
-                        {
-                            case 1:
-                                devices[i].countDown = ANDROID_DEVICE_ATTACH_TIMEOUT;
-                                break;
-                            default:
-                                //USB_HOST_APP_EVENT_HANDLER(address,event,devices[i].protocolHandle,sizeof(ANDROID_DEVICE_DATA*));
-                                break;
-                        }
+                        devices[i].state = WAITING_FOR_ACCESSORY_RETURN;
                     }
-                    else
+
+                    if(devices[i].state != WAITING_FOR_ACCESSORY_RETURN)
                     {
-                        USB_HOST_APP_EVENT_HANDLER(address,event,devices[i].protocolHandle,sizeof(ANDROID_DEVICE_DATA*));
+                        device = &devices[i];
+
+                        USBHostTerminateTransfer( device->address, device->OUTEndpointNum );
+                        USBHostTerminateTransfer( device->address, device->INEndpointNum );
+                        USB_HOST_APP_EVENT_HANDLER(device->address,EVENT_ANDROID_DETACH,device,sizeof(ANDROID_DEVICE_DATA*));
+                        
                         //Device has timed out.  Destroy its info.
                         memset(&devices[i],0x00,sizeof(ANDROID_DEVICE_DATA));
                     }
+                    //If we are WAITING_FOR_ACCESSORY_RETURN, then we will timeout in data handler instead
+                }
+            }
+
+            return TRUE;
+        case EVENT_HUB_ATTACH:       // USB hub has been attached
+            return TRUE;
+
+        case EVENT_TRANSFER:         // A USB transfer has completed - NOT USED
+
+            for(i=0;i<NUM_ANDROID_DEVICES_SUPPORTED;i++)
+            {
+                if(devices[i].address == address)
+                {
+                    device = &devices[i];
+                }
+            }
+
+            //If this is for a device that we don't know about, get rid of it.
+            if(device == NULL)
+            {
+                return FALSE;
+            }
+
+            //Otherwise, handle the data
+            if(transfer_data->bEndpointAddress == 0x00)
+            {
+                //If the transfer was EP0, just clear the pending bit and 
+                //  we will handle the rest in the tasks function so we don't
+                //  duplicate state machine changes both here and there
+                device->status.EP0TransferPending = 0;
+
+                if(device->hid.HIDEventSent == 1)
+                {
+                    device->hid.HIDEventSent = 0;
+                    USB_HOST_APP_EVENT_HANDLER(device->address, EVENT_ANDROID_HID_SEND_EVENT_COMPLETE, device, sizeof(ANDROID_DEVICE_DATA*));
                 }
             }
             
             return TRUE;
-        case EVENT_TRANSFER:        
-            for(i=0;i<NUM_ANDROID_DEVICES_SUPPORTED;i++)
-            {
-                if((transfer_data->bEndpointAddress == 0x00) && (devices[i].state == GET_PROTOCOL_SENT))
-                {
-                    for(j=0;j<(sizeof(protocolVersions)/sizeof(ANDROID_PROTOCOL_VERSION));j++)
-                    {
-                        if(devices[i].protocol == protocolVersions[j].versionNumber)
-                        {
-                            //From this level standpoint, we are done.  The rest is
-                            //  protocol layer specific
-                            devices[i].state = READY;
-                            devices[i].protocolHandle = protocolVersions[j].init(devices[i].address, devices[i].flags, devices[i].clientDriverID);
-                            break;
-                        }
-                    }
-
-                    if(j >= (sizeof(protocolVersions)/sizeof(ANDROID_PROTOCOL_VERSION)))
-                    {
-                        //If we don't support that protocol version, use the next best version
-
-                        //Override the protocol version specified by the device
-                        devices[i].protocol = protocolVersions[j-1].versionNumber;
-
-                        devices[i].state = READY;
-                        devices[i].protocolHandle = protocolVersions[j-1].init(devices[i].address, devices[i].flags, devices[i].clientDriverID);
-                    }
-
-                    return TRUE;
-                }
-            }
-            return TRUE;
-        case EVENT_NONE:             // No event occured (NULL event)
-            //Fall through
-        case EVENT_HUB_ATTACH:       // USB hub has been attached
-            //Fall through           
         case EVENT_RESUME:           // Device-mode resume received
-            //Fall through           
+            return TRUE;
+
         case EVENT_SUSPEND:          // Device-mode suspend/idle event received
-            //Fall through           
+            return TRUE;
+
         case EVENT_RESET:            // Device-mode bus reset received
-            //Fall through           
+            return TRUE;
+
         case EVENT_STALL:            // A stall has occured
-            //Fall through           
+            return TRUE;
+
         case EVENT_BUS_ERROR:            // BUS error has occurred
             return TRUE;
+
         default:
             break;
     }
     return FALSE;
 }
 
+BYTE AndroidAppHIDSendEvent(BYTE address, BYTE id, BYTE* report, BYTE length)
+{
+    ANDROID_DEVICE_DATA* device = NULL;
+    BYTE errorCode = USB_ENDPOINT_BUSY;
+    DWORD byteCount;
+    BYTE i;
+
+    for(i=0;i<NUM_ANDROID_DEVICES_SUPPORTED;i++)
+    {
+        if(devices[i].address == address)
+        {
+            device = &devices[i];
+            break;
+        }
+    }
+
+    if(device == NULL)
+    {
+        return USB_UNKNOWN_DEVICE;
+    }
+    
+    if(device->status.EP0TransferPending == 0)
+    {
+        //MCHP: should switch this to use the transfer events instead.  It is safer.
+        if(AndroidIsLastCommandComplete(device->address, &errorCode, &byteCount) == TRUE)
+        {
+            //Set the audio mode
+            errorCode = USBHostIssueDeviceRequest(  device->address,                    //BYTE deviceAddress,
+                                        USB_SETUP_HOST_TO_DEVICE            //BYTE bmRequestType,
+                                            | USB_SETUP_TYPE_VENDOR
+                                            | USB_SETUP_RECIPIENT_DEVICE,
+                                        ANDROID_ACCESSORY_SEND_HID_EVENT,   //BYTE bRequest,
+                                        id,                                  //WORD wValue,
+                                        0,                                  //WORD wIndex,
+                                        length,                                  //WORD wLength,
+                                        report,                               //BYTE *data,
+                                        USB_DEVICE_REQUEST_SET,             //BYTE dataDirection,
+                                        device->clientDriverID              //BYTE clientDriverID
+                                     );
+
+            if(errorCode == USB_SUCCESS)
+            {
+                device->hid.id = id;
+                device->hid.length = length;
+                device->hid.data = report;
+                device->hid.HIDEventSent = 1;
+
+                device->status.EP0TransferPending = 1;
+            }
+        }
+    }
+
+    return errorCode; 
+}
+
+BOOL AndroidAppHIDRegister(BYTE address, BYTE id, BYTE* descriptor, BYTE length)
+{
+    ANDROID_DEVICE_DATA* device = NULL;
+
+    BYTE i;
+
+    for(i=0;i<NUM_ANDROID_DEVICES_SUPPORTED;i++)
+    {
+        if(devices[i].address == address)
+        {
+            device = &devices[i];
+            break;
+        }
+    }
+
+    if(device == NULL)
+    {
+        return USB_UNKNOWN_DEVICE;
+    }
+    
+    if(device->state != READY)
+    {
+        return FALSE;
+    }
+
+    device->state = REGISTERING_HID;
+    device->hid.data = descriptor;
+    device->hid.length = length;
+    device->hid.offset = 0;
+    device->hid.id = id;
+
+    return TRUE;
+}
+
+/********************************************************************/
+/**     Internal Functions                                         **/
+/********************************************************************/
+
+/****************************************************************************
+  Function:
+    static BYTE AndroidCommandSendString(void *handle, ANDROID_ACCESSORY_STRINGS stringType, const char *string, WORD stringLength)
+
+  Summary:
+    Sends a command String to the Android device using the EP0 command 
+
+  Description:
+    Sends a command String to the Android device using the EP0 command 
+
+  Precondition:
+    None
+
+  Parameters:
+    void* handle - the device to send the message to
+    ANDROID_ACCESSORY_STRINGS stringType - the type of string message being sent
+    const char* string - the string data being sent
+    WORD stringLength - the length of the string
+
+  Return Values:
+    USB_SUCCESS                 - Request processing started
+    USB_UNKNOWN_DEVICE          - Device not found
+    USB_INVALID_STATE           - The host must be in a normal running state
+                                    to do this request
+    USB_ENDPOINT_BUSY           - A read or write is already in progress
+    USB_ILLEGAL_REQUEST         - SET CONFIGURATION cannot be performed with
+                                    this function.
+
+  Remarks:
+    This is a internal API only.
+  ***************************************************************************/
+static BYTE AndroidCommandSendString(void *handle, ANDROID_ACCESSORY_STRINGS stringType, const char *string, WORD stringLength)
+{
+    ANDROID_DEVICE_DATA* device = (ANDROID_DEVICE_DATA*)handle;
+
+    return USBHostIssueDeviceRequest (  device->address,                    //BYTE deviceAddress, 
+                                        USB_SETUP_HOST_TO_DEVICE            //BYTE bmRequestType,
+                                            | USB_SETUP_TYPE_VENDOR 
+                                            | USB_SETUP_RECIPIENT_DEVICE,       
+                                        ANDROID_ACCESSORY_SEND_STRING,      //BYTE bRequest,
+                                        0,                                  //WORD wValue, 
+                                        (WORD)stringType,                   //WORD wIndex, 
+                                        stringLength,                       //WORD wLength, 
+                                        (BYTE*)string,                      //BYTE *data, 
+                                        USB_DEVICE_REQUEST_SET,             //BYTE dataDirection,
+                                        device->clientDriverID              //BYTE clientDriverID 
+                                      );
+}
+
+/****************************************************************************
+  Function:
+    static BYTE AndroidCommandStart(void *handle)
+
+  Summary:
+    Sends a the start command that makes the Android device go into accessory mode 
+
+  Description:
+    Sends a the start command that makes the Android device go into accessory mode
+
+  Precondition:
+    None
+
+  Parameters:
+    void* handle - the device entering accessory mode
+
+  Return Values:
+    USB_SUCCESS                 - Request processing started
+    USB_UNKNOWN_DEVICE          - Device not found
+    USB_INVALID_STATE           - The host must be in a normal running state
+                                    to do this request
+    USB_ENDPOINT_BUSY           - A read or write is already in progress
+    USB_ILLEGAL_REQUEST         - SET CONFIGURATION cannot be performed with
+                                    this function.
+
+  Remarks:
+    This is a internal API only.
+  ***************************************************************************/
+static BYTE AndroidCommandStart(void *handle)
+{
+    ANDROID_DEVICE_DATA* device = (ANDROID_DEVICE_DATA*)handle;
+
+    return USBHostIssueDeviceRequest (  device->address,                    //BYTE deviceAddress, 
+                                        USB_SETUP_HOST_TO_DEVICE            //BYTE bmRequestType,
+                                            | USB_SETUP_TYPE_VENDOR 
+                                            | USB_SETUP_RECIPIENT_DEVICE,       
+                                        ANDROID_ACCESSORY_START,            //BYTE bRequest,
+                                        0,                                  //WORD wValue, 
+                                        0,                                  //WORD wIndex, 
+                                        0,                                  //WORD wLength, 
+                                        NULL,                               //BYTE *data, 
+                                        USB_DEVICE_REQUEST_SET,             //BYTE dataDirection,
+                                        device->clientDriverID              //BYTE clientDriverID 
+                                      );
+}
+
+/****************************************************************************
+  Function:
+    static BOOL AndroidIsLastCommandComplete(BYTE address, BYTE *errorCode, DWORD *byteCount)
+
+  Summary:
+    Checks to see if the last command request is complete.
+
+  Description:
+    Checks to see if the last command request is complete.
+
+  Precondition:
+    AndroidAppStart() function has been called before the first calling of this function
+
+  Parameters:
+    BYTE address - the address of the device that issued the command
+    BYTE* errorCode - pointer to the location where the error code should be stored
+    DWORD* byteCount - pointer to the location where the size of the resulting transfer should be written.
+
+  Return Values:
+    TRUE - command is complete
+    FALSE - command is still in progress
+
+  Remarks:
+    This function is implemented for polled transfer implementations but should
+    be deprecated once polled transfer requests are removed.
+
+    Internal API only.  Should not be called by a user.
+  ***************************************************************************/
+static BOOL AndroidIsLastCommandComplete(BYTE address, BYTE *errorCode, DWORD *byteCount)
+{
+    return USBHostTransferIsComplete(   address,        //BYTE deviceAddress, 
+                                        0,                      //BYTE endpoint, 
+                                        errorCode,              //BYTE *errorCode,
+                                        byteCount               //DWORD *byteCount 
+                                    );
+}
 
 //DOM-IGNORE-END

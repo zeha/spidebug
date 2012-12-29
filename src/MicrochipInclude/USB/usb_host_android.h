@@ -94,7 +94,22 @@ Change History
    on various build options. */
 #define EVENT_ANDROID_DETACH      ANDROID_EVENT_BASE + 1
 
+/* This event is thrown after a HID report is successfully registered.  That report is
+   now available for use by the application */
+#define EVENT_ANDROID_HID_REGISTRATION_COMPLETE ANDROID_EVENT_BASE + 2
 
+/* The requested report has been sent to the requested device.  */
+#define EVENT_ANDROID_HID_SEND_EVENT_COMPLETE   ANDROID_EVENT_BASE + 3
+
+/* Defines the available audio modes */
+typedef enum
+{
+    /* No audio support enabled */
+    ANDROID_AUDIO_MODE__NONE = 0,
+
+    /* 44K 16B PCM audio mode enabled */
+    ANDROID_AUDIO_MODE__44K_16B_PCM = 1
+} ANDROID_AUDIO_MODE;
 
 /* This structure contains the informatin that is required to successfully create a link 
    between the Android device and the accessory.  This information must match the 
@@ -120,6 +135,8 @@ typedef struct
 
     char* serial;               //String: serial number of the device
     BYTE serial_size;           //length of the serial number string
+
+    ANDROID_AUDIO_MODE  audio_mode;
 } ANDROID_ACCESSORY_INFORMATION;
 
 
@@ -431,3 +448,58 @@ BOOL AndroidAppEventHandler( BYTE address, USB_EVENT event, void *data, DWORD si
   ***************************************************************************/
 BOOL AndroidAppDataEventHandler( BYTE address, USB_EVENT event, void *data, DWORD size );
 
+
+/****************************************************************************
+  Function:
+    BYTE AndroidAppHIDSendEvent(BYTE address, BYTE id, BYTE* report, BYTE length);
+
+  Summary:
+    Sends a HID report to the associated Android device
+
+  Description:
+    Sends a HID report to the associated Android device
+
+  Precondition:
+    HID device should have already been registers with the AndroidAppHIDRegister() function
+
+  Parameters:
+    BYTE address - address of the USB peripheral to send the report to
+    BYTE id - Report ID of the report being sent
+    BYTE* report - data for the report
+    BYTE length - length of the report
+
+  Return Values:
+    None
+
+  Remarks:
+    None
+  ***************************************************************************/
+BYTE AndroidAppHIDSendEvent(BYTE address, BYTE id, BYTE* report, BYTE length);
+
+
+/****************************************************************************
+  Function:
+    BOOL AndroidAppHIDRegister(BYTE address, BYTE id, BYTE* descriptor, BYTE length);
+
+  Summary:
+    Registers a HID report with the Android device
+
+  Description:
+    Registers a HID report with the Android device
+
+  Precondition:
+    HID device already attached
+
+  Parameters:
+    BYTE address - address of the USB peripheral to send the report to
+    BYTE id - Report ID of the report that is being registered
+    BYTE* descriptor - HID report descriptor
+    BYTE length - length of the report
+
+  Return Values:
+    None
+
+  Remarks:
+    None
+  ***************************************************************************/
+BOOL AndroidAppHIDRegister(BYTE address, BYTE id, BYTE* descriptor, BYTE length);

@@ -212,8 +212,6 @@ USB_HANDLE CDCDataInHandle;
 
 CONTROL_SIGNAL_BITMAP control_signal_bitmap;
 DWORD BaudRateGen;			// BRG value calculated from baudrate
-extern BYTE  i;
-extern BYTE_VAL *pDst;
 
 #if defined(USB_CDC_SUPPORT_DSR_REPORTING)
     BM_SERIAL_STATE SerialStateBitmap;

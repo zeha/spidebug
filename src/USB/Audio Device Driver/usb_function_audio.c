@@ -2,21 +2,17 @@
   File Information:
     FileName:       usb_function_audio.c
     Dependencies:   See INCLUDES section
-    Processor:      PIC18 or PIC24 USB Microcontrollers
-    Hardware:       The code is natively intended to be used on the following
-                    hardware platforms: PICDEM™ FS USB Demo Board,
-                    PIC18F87J50 FS USB Plug-In Module, or
-                    Explorer 16 + PIC24 USB PIM.  The firmware may be
-                    modified for use on other USB platforms by editing the
-                    HardwareProfile.h file.
+    Processor:      Microchip USB Microcontrollers
+    Hardware:       Please see help file in "<install directory>\Microchip\Help"
+	                for details.
     Complier:   	Microchip C18 (for PIC18) or C30 (for PIC24)
     Company:        Microchip Technology, Inc.
 
     Software License Agreement:
 
     The software supplied herewith by Microchip Technology Incorporated
-    (the “Company”) for its PIC® Microcontroller is intended and
-    supplied to you, the Company’s customer, for use solely and
+    (the "Company") for its PIC(R) Microcontroller is intended and
+    supplied to you, the Company's customer, for use solely and
     exclusively on Microchip PIC Microcontroller products. The
     software is owned by the Company and/or its supplier, and is
     protected under applicable copyright laws. All rights are reserved.
@@ -25,7 +21,7 @@
     civil liability for the breach of the terms and conditions of this
     license.
 
-    THIS SOFTWARE IS PROVIDED IN AN “AS IS” CONDITION. NO WARRANTIES,
+    THIS SOFTWARE IS PROVIDED IN AN "AS IS" CONDITION. NO WARRANTIES,
     WHETHER EXPRESS, IMPLIED OR STATUTORY, INCLUDING, BUT NOT LIMITED
     TO, IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A
     PARTICULAR PURPOSE APPLY TO THIS SOFTWARE. THE COMPANY SHALL NOT,
@@ -129,7 +125,6 @@
 
 
 /** V A R I A B L E S ********************************************************/
-unsigned char TempBuffer[8];
 
 /** C L A S S  S P E C I F I C  R E Q ****************************************/
 /******************************************************************************

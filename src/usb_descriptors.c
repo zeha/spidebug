@@ -155,6 +155,7 @@ state according to the definition in the USB specification.
  
 /** INCLUDES *******************************************************/
 #include "./USB/usb.h"
+#ifdef USB_SERIAL
 #include "./USB/usb_function_cdc.h"
 
 /** CONSTANTS ******************************************************/
@@ -307,5 +308,8 @@ ROM BYTE *ROM USB_SD_Ptr[]=
 #if defined(__18CXX)
 #pragma code
 #endif
+
+#endif /* USB_SERIAL */
+
 #endif
 /** EOF usb_descriptors.c ****************************************************/

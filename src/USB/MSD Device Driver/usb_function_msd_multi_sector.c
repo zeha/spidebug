@@ -79,6 +79,9 @@ Change History:
               capability of SD/MMC media cards.  This can significantly enhance
               maximum transfer rates, although the exact amount of improvement
               will vary based on brand/type of media.
+  2.9h        Added fix to allow MSD devices to be ejected in Mac OSX and so that
+              read-only media does not create an error in Mac OSX every time it is
+              enumerated.
 
 ********************************************************************/
  
@@ -138,7 +141,10 @@ Change History:
 #define MSD_FAILED_WRITE_MAX_ATTEMPTS (BYTE)100u    //Used for error case handling
 
 /** V A R I A B L E S ************************************************/
-#pragma udata
+#if defined(__18CXX)
+    #pragma udata
+#endif
+
 //State machine variables
 BYTE MSD_State;			// Takes values MSD_WAIT, MSD_DATA_IN or MSD_DATA_OUT
 BYTE MSDCommandState;
@@ -183,7 +189,9 @@ void MSDErrorHandler(BYTE);
 static void MSDComputeDeviceInAndResidue(WORD);
 
 /** D E C L A R A T I O N S **************************************************/
-#pragma code
+#if defined(__18CXX)
+    #pragma code
+#endif
 
 /** C L A S S  S P E C I F I C  R E Q ****************************************/
 
@@ -894,10 +902,10 @@ void MSDProcessCommandMediaPresent(void)
           	MSDCommandState = MSD_COMMAND_RESPONSE;
             break;
 	    case MSD_MODE_SENSE:
-        	msd_buffer[0]=0x02;
+        	msd_buffer[0]=0x03;
         	msd_buffer[1]=0x00;
-        	msd_buffer[2]=0x00;
-        	msd_buffer[3]=0x00;
+        	msd_buffer[2]=(LUNWriteProtectState()) ? 0x80 : 0x00;
+        	msd_buffer[3]= 0x00;
  
            	//Compute and load proper csw residue and device in number of byte.
             TransferLength.Val = 0x04;      
@@ -905,17 +913,11 @@ void MSDProcessCommandMediaPresent(void)
         	MSDCommandState = MSD_COMMAND_RESPONSE;
     	    break;
 		case MSD_PREVENT_ALLOW_MEDIUM_REMOVAL:
-            if(LUNMediaDetect())
-            {
-        		msd_csw.dCSWDataResidue = 0x00;
-        	}
-            else
-            {
-        		gblSenseData[LUN_INDEX].SenseKey=S_NOT_READY;
-        		gblSenseData[LUN_INDEX].ASC=ASC_MEDIUM_NOT_PRESENT;
-        		gblSenseData[LUN_INDEX].ASCQ=ASCQ_MEDIUM_NOT_PRESENT;
-        		msd_csw.bCSWStatus = MSD_CSW_COMMAND_FAILED;
-        	}
+        	gblSenseData[LUN_INDEX].SenseKey=S_ILLEGAL_REQUEST;
+        	gblSenseData[LUN_INDEX].ASC=ASC_INVALID_COMMAND_OPCODE;
+        	gblSenseData[LUN_INDEX].ASCQ=ASCQ_INVALID_COMMAND_OPCODE;
+        	msd_csw.bCSWStatus = MSD_CSW_COMMAND_FAILED;
+        	msd_csw.dCSWDataResidue = 0x00;
 			MSDCommandState = MSD_COMMAND_WAIT;
             break;
 		case MSD_TEST_UNIT_READY:

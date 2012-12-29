@@ -163,7 +163,9 @@ void init(void) {
     unit_init();
     serial_init();
     usb_init();
+#ifdef LEDMATRIX
     ledmatrix_init();
+#endif
 
     INTEnableSystemMultiVectoredInt();
 }
@@ -200,10 +202,14 @@ int main(void) {
     while (1) {
         i++;
 
+#ifdef SERIAL_USB
         serial_tick();
+#endif
         usb_tick();
+#ifdef LEDMATRIX
 #ifndef LEDMATRIX_USE_INTERRUPT
         ledmatrix_tick();
+#endif
 #endif
 
         if (i%50000 == 0) {

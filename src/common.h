@@ -1,6 +1,7 @@
 #ifndef COMMON_H
 #define COMMON_H
 
+#include "spidebug_features.h"
 #include <xc.h>
 #include <plib.h>
 #include <stdint.h>
