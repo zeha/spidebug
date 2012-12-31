@@ -196,9 +196,10 @@ int main(void) {
     bool led = false;
     int i = 0;
 
+#ifdef LCD_COLOR
     const char* p = "HELLO WORLD! °><!#\\\"*|{}[]";
-
-    lcd_show_color_string(20, 60, COLOR_WHITE, COLOR_BLUE, strlen(p), p);
+    lcd_show_color_string_5x7(20, 60, COLOR_WHITE, COLOR_BLUE, strlen(p), p);
+#endif
 
 
     while (1) {

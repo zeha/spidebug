@@ -6,6 +6,7 @@
 #include <plib.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include "HardwareProfile.h"
 
 /******************************************************************************/
 #define VERSION_MAJOR "00"
@@ -48,20 +49,13 @@ void led7_set(BOOL onoff);
 void led8_set(BOOL onoff);
 void leds_init(void);
 
-// lcd-color.c
-typedef uint32_t lcd_color_t;
-void lcd_init(void);
-void lcd_demo_loop(void);
-void lcd_show_color_string(unsigned int x, unsigned int y, lcd_color_t foreground, lcd_color_t background, unsigned int length, const char* p);
-#define COLOR_BLACK                        0x000000
-#define COLOR_WHITE                        0xffffff
-#define COLOR_RED                          0xff0000
-#define COLOR_GREEN                        0x00ff00
-#define COLOR_BLUE                         0x0000ff
-
 // usb.c
 void usb_init(void);
 void usb_tick(void);
+
+#ifdef LCD_COLOR
+#include "lcd-color.h"
+#endif
 
 #endif
 
