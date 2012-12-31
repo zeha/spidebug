@@ -162,7 +162,9 @@ void init(void) {
     lcd_init();
     unit_init();
     serial_init();
+#if defined(ANDROID_HOST) || defined(USB_SERIAL)
     usb_init();
+#endif
 #ifdef LEDMATRIX
     ledmatrix_init();
 #endif
@@ -205,7 +207,9 @@ int main(void) {
 #ifdef SERIAL_USB
         serial_tick();
 #endif
+#if defined(ANDROID_HOST) || defined(USB_SERIAL)
         usb_tick();
+#endif
 #ifdef LEDMATRIX
 #ifndef LEDMATRIX_USE_INTERRUPT
         ledmatrix_tick();

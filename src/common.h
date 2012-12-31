@@ -24,6 +24,14 @@
 
 typedef uint16_t timer_ticks_t;
 
+
+#define BUS_DIRECTION LATFbits.LATF12
+#define BUS_DIRECTION_TRIS TRISFbits.TRISF12
+#define BUS_DIRECTION_RECEIVE 0
+#define BUS_DIRECTION_TRANSMIT 1
+
+
+
 // main.c
 void delay_ms(int time_ms);
 void delay_us(int time_us);

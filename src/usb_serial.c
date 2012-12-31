@@ -1,9 +1,9 @@
 #include "common.h"
 #include "GenericTypeDefs.h"
 #include "HardwareProfile.h"
-#include "USB/usb.h"
 
 #ifdef USB_SERIAL
+#include "USB/usb.h"
 #include "USB/usb_function_cdc.h"
 #include "serial.h"
 

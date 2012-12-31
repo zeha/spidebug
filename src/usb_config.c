@@ -31,9 +31,13 @@ SUBSTITUTE GOODS, TECHNOLOGY, SERVICES, OR ANY CLAIMS BY THIRD PARTIES
 
 #include "spidebug_features.h"
 
+#if defined(ANDROID_HOST) || defined(USB_SERIAL)
+
 #include "GenericTypeDefs.h"
 #include "HardwareProfile.h"
 #include "USB/usb.h"
+
+#endif
 
 #ifdef ANDROID_HOST
 

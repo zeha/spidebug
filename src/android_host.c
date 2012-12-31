@@ -1,14 +1,15 @@
 #include "common.h"
 #include "GenericTypeDefs.h"
 #include "HardwareProfile.h"
+#ifdef ANDROID_HOST
 #include "USB/usb.h"
 #include "USB/usb_host_android.h"
 
-static char manufacturer[] = "Microchip Technology Inc.";
-static char model[] = "Basic Accessory Demo";
-static char description[] = "SPI DEBUG";
-static char version[] = "2.0";
-static char uri[] = "http://www.microchip.com/android";
+static char manufacturer[] = "Hofstaedtler";
+static char model[] = "SPI Debug";
+static char description[] = "SPI Debug Board";
+static char version[] = "1.0";
+static char uri[] = "http://www.hofstaedtler.com";
 static char serial[] = "N/A";
 
 ANDROID_ACCESSORY_INFORMATION myDeviceInfo =
@@ -372,3 +373,5 @@ BOOL USB_ApplicationEventHandler( BYTE address, USB_EVENT event, void *data, DWO
     }
     return FALSE;
 }
+
+#endif

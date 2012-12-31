@@ -154,7 +154,10 @@ state according to the definition in the USB specification.
 #define __USB_DESCRIPTORS_C
  
 /** INCLUDES *******************************************************/
+#if defined(ANDROID_HOST) || defined(USB_SERIAL)
 #include "./USB/usb.h"
+#endif
+
 #ifdef USB_SERIAL
 #include "./USB/usb_function_cdc.h"
 
