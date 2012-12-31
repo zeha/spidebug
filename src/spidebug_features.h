@@ -4,7 +4,8 @@
 // #define ANDROID_HOST
 // #define LEDMATRIX
 // #define USB_SERIAL
-#define LCD_COLOR
+// #define LCD_COLOR
+#define LCD_BW
 
 #endif
 

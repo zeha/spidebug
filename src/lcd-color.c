@@ -1,6 +1,8 @@
 /* SSD1963 Display Controller */
 
 #include "common.h"
+#ifdef LCD_COLOR
+
 #include "lcd-color.h"
 #include <peripheral/pmp.h>
 #include <peripheral/ports.h>
@@ -398,4 +400,6 @@ void lcd_demo_loop(void) {
 
     }
 }
+#endif
+
 #endif
